@@ -96,3 +96,64 @@ Para atingir o objetivo do projeto ACE (voo autónomo num percurso predefinido e
   * `src/rc.cpp` e `src/rc.hpp` (Mapear novos índices para os pacotes de dados).
   * `src/telemetry.cpp` (Para avisar o comando das decisões tomadas de forma autónoma).
   * *(Nota: Isto também implicará alterações significativas no código do Comando para enviar as rotinas).*
+
+
+
+# 🎮 Código do Comando / Controlador (`Atom-JoyStick/`)
+
+## Estrutura do Código-Fonte Comando (`src/` e `examples/`)
+
+Esta secção descreve a função de cada módulo no firmware do comando remoto, responsável por interagir com o utilizador, processar os inputs físicos e enviar comandos precisos para o drone.
+
+### 🧠 Lógica Principal e Comunicação
+* **`main.cpp`** O "cérebro" do comando remoto. Coordena o sistema inteiro: gere o emparelhamento e comunicação de baixa latência (**ESP-NOW**) com o drone, processa as máquinas de estados dos modos de voo, converte a posição mecânica do joystick nos sinais de voo (Pitch, Roll, Yaw, Throttle) e gere tarefas paralelas (*multithreading* com FreeRTOS).
+
+### 🕹️ Hardware e Sensores de Input
+* **`AtomJoyStick.cpp`** Driver de comunicação I2C dedicado ao módulo M5Stack Atom Joystick. Encarrega-se de ler os valores analógicos exatos (em 8 ou 12-bit) dos quatro eixos do comando, regista os cliques nos botões físicos integrados e monitoriza a tensão elétrica (voltagem) das duas baterias do comando 18650.
+* **`GetValue.ino`** (Pasta de exemplos) Código de diagnóstico e demonstração. É utilizado isoladamente para calibrar e testar o hardware, imprimindo as leituras cruas dos eixos e baterias diretamente para o monitor série.
+
+### 🖥️ Interface Gráfica (UI) e Ecrã
+* **`app_lvgl.cpp`** Motor visual do comando. Utiliza a biblioteca gráfica **LVGL** para desenhar e gerir os dois ecrãs de interface (o menu de Setup e o painel de Voo). É aqui que são processadas as animações dos mostradores (como o horizonte artificial) e a atualização em tempo real da telemetria recebida do drone (bateria, altitude, aviso de radar frontal).
+* **`lvgl_porting.cpp`** A ponte (*driver*) entre a interface gerada pelo LVGL e o ecrã físico do M5AtomS3. Transfere os píxeis calculados para o display (via biblioteca M5GFX), traduz cliques nos botões físicos para interações táteis virtuais e gere o "relógio" interno (Tick) numa tarefa isolada para garantir que o ecrã atualiza a alta frequência sem encravar o rádio.
+
+### 🔊 Feedback e Alertas
+* **`buzzer.cpp`** Gestor de áudio via PWM (LEDC). Controla o altifalante interno para fornecer feedback tátil e de sistema ao piloto. Inclui funções para *beeps* de clique, melodias de arranque da UI e um alerta sonoro especializado que avisa quando a bateria atinge a voltagem exata ideal para armazenamento prolongado (*Storage Voltage*).
+
+
+## 📋 TODO - Roadmap de Desenvolvimento (Comando / Controlador)
+
+Para o comando acompanhar as novas capacidades autónomas do drone ACE, teremos de expandir a sua interface, os alertas e o protocolo de comunicação.
+
+### 1. Atualização do Protocolo de Comunicação (ESP-NOW)
+**Objetivo:** Permitir que o comando envie as ordens de "Iniciar Voo Autónomo" e "Regressar à Base" (RTL), e seja capaz de interpretar as novas mensagens de estado enviadas pelo drone.
+* **O que fazer:**
+  * Adicionar novos índices virtuais aos dados transmitidos (ex: uma flag específica para ativar o quadrado e outra para forçar a aterragem na base).
+  * Descodificar os novos dados de telemetria recebidos (ex: ler se o drone entrou em modo RTL automaticamente devido à bateria).
+* **Ficheiros a alterar:**
+  * `src/main.cpp` (Para alterar a construção do pacote de dados (o array de comandos) enviado para o drone e a leitura do pacote de telemetria recebido).
+
+### 2. Mapeamento de Botões para Modos Autónomos
+**Objetivo:** Atribuir ações físicas aos novos comandos do projeto para que o piloto possa acionar as rotinas com o Joystick.
+* **O que fazer:**
+  * Escolher um botão físico (ou criar uma combinação de botões / pressão longa) no módulo Atom Joystick para acionar a rotina do quadrado.
+  * Escolher/Mapear um botão de emergência para forçar o "Return to Base" a qualquer momento.
+* **Ficheiros a alterar:**
+  * `src/AtomJoyStick.cpp` (Para ler a nova combinação/botão, se necessário).
+  * `src/main.cpp` (Para traduzir esse clique na variável que será enviada via ESP-NOW).
+
+### 3. Atualização da Interface Gráfica (Ecrã LVGL) (Totalmente Opcional (só fazer no fim))
+**Objetivo:** Informar visualmente o piloto de que o drone assumiu o controlo e mostrar alertas críticos.
+* **O que fazer:**
+  * Adicionar indicadores visuais no ecrã de voo (ex: Mudar um texto para "AUTO" ou "RTL" com cores chamativas quando os modos estiverem ativos).
+  * Criar um alerta visual crítico (ex: um *pop-up* ou piscar o ecrã a vermelho) quando a bateria do drone atingir o `V_threshold` e a aterragem de emergência começar.
+* **Ficheiros a alterar:**
+  * `src/app_lvgl.cpp` (Para desenhar e animar os novos elementos visuais da interface baseados nas variáveis atualizadas no `main.cpp`).
+
+### 4. Alertas Sonoros Críticos (Buzzer) (Totalmente Opcional (só fazer no fim))
+**Objetivo:** Garantir que o piloto percebe que o drone está com bateria fraca ou a regressar, mesmo que não esteja a olhar para o ecrã.
+* **O que fazer:**
+  * Criar novos padrões de beeps (ex: 3 beeps rápidos para confirmar que a rotina do quadrado começou; um alarme contínuo para "Bateria Crítica / A Iniciar Regresso").
+  * Chamar estes beeps no ciclo principal quando as flags de telemetria correspondentes dispararem.
+* **Ficheiros a alterar:**
+  * `src/buzzer.cpp` (Para criar as novas funções de padrões sonoros).
+  * `src/main.cpp` (Para chamar as funções do buzzer na lógica de telemetria).
