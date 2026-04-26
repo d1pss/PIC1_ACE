@@ -74,6 +74,10 @@ extern volatile float Roll_rate, Pitch_rate, Yaw_rate;
 extern volatile float Accel_x_raw, Accel_y_raw, Accel_z_raw;
 extern volatile float Accel_x, Accel_y, Accel_z;
 extern volatile float Accel_z_d;
+//adicionei isto
+extern volatile float Vel_x, Vel_y;
+extern volatile float Pos_x, Pos_y;
+
 extern volatile int16_t RawRange;
 extern volatile int16_t Range;
 extern volatile float Altitude;

@@ -183,6 +183,15 @@ float Flip_time                  = 2.0;
 volatile uint8_t Ahrs_reset_flag = 0;
 float T_flip;
 
+// Autonomous mode flag
+// implementar forma de mudar estas flags a partir do comando por esp_now
+//***************************************TODO***********************************************/
+#define V_threshold 3.8
+volatile uint8_t auto_flag = 0;
+volatile uint8_t return_base_flag = 0;
+volatile uint8_t emergency_landing_flag = 0;
+//******************************************************************************************/
+
 // PID object and etc.
 PID p_pid;
 PID q_pid;
@@ -230,6 +239,10 @@ void reset_angle_control(void);
 uint8_t auto_landing(void);
 float get_trim_duty(float voltage);
 void flip(void);
+//******************************************************************************************/
+//funçao de voo autônomo
+void autonomous_flight(void);
+//******************************************************************************************/
 float get_rate_ref(float x);
 
 // 割り込み関数
@@ -267,6 +280,7 @@ void init_copter(void) {
     control_init();
 
     // Initilize Radio control
+    // inicializar a telemetria do esp-now protocol
     rc_init();
 
     // 割り込み設定
@@ -308,6 +322,8 @@ void loop_400Hz(void) {
     led_drive();
     // if (Interval_time>0.006)USBSerial.printf("%9.6f\n\r", Interval_time);
     // USBSerial.printf("Mode=%d OverG=%d\n\r", Mode, OverG_flag);
+
+
     // Begin Mode select
     if (Mode == INIT_MODE) {
         motor_stop();
@@ -323,7 +339,8 @@ void loop_400Hz(void) {
     } else if (Mode == AVERAGE_MODE) {
         motor_stop();
         // Gyro offset Estimate
-        if (OffsetCounter < AVERAGENUM) {
+        //calibrar o offset do giroscópio
+        if (OffsetCounter < AVERAGENUM) { // AVERAGENUM = 800 por default, ou seja, 2 segundos a 400Hz
             sensor_calc_offset_avarage();
             OffsetCounter++;
             return;
@@ -334,6 +351,12 @@ void loop_400Hz(void) {
         return;
     } else if (Mode == FLIGHT_MODE) {
         Control_period = Interval_time;
+
+        //Verificar se comando ativou auto
+        if (auto_flag == 1) {
+            Mode = AUTONOMOUS_MODE;  // Novo modo
+            return;
+        }
 
         // Judge Mode change
         if (judge_mode_change() == 1) Mode = AUTO_LANDING_MODE;
@@ -354,11 +377,11 @@ void loop_400Hz(void) {
         flip();
     } else if (Mode == PARKING_MODE) {
         // Judge Mode change
-        if (judge_mode_change() == 1) {
+        if (judge_mode_change() == 1) { //deteta quando o botão de ARM é pressionado e largado
             for (int i = 0; i < 20; i++) {
-                ahrs_reset();
+                ahrs_reset(); // Reinicia o algoritmo Madgwick 20 vezes para garantir que o filtro esteja limpo antes de iniciar o voo
             }
-            Mode = FLIGHT_MODE;
+            Mode = FLIGHT_MODE; // Transição para voo
         }
         if (last_ahrs_reset_flag != ahrs_reset_flag) {
             if (ahrs_reset_flag == 1) {
@@ -368,21 +391,24 @@ void loop_400Hz(void) {
             last_ahrs_reset_flag = ahrs_reset_flag;
         }
 
-        // Parking
-        motor_stop();
-        OverG_flag = 0;
-        Thrust0    = 0.0;
-        Alt_flag   = 0;
-        // flip reset
+        // Parking - Garante tudo em repouso
+        motor_stop();                      // Para motores
+        OverG_flag = 0;                    // Limpa flag de queda
+        Thrust0 = 0.0;                     // Sem potência
+        Alt_flag = 0;                      // Desactiva controlo de altitude
+
+        // flip reset - Reinicia tudo para o próximo voo
         Roll_rate_reference  = 0;
         Ahrs_reset_flag      = 0;
         Flip_counter         = 0;
         Flip_flag            = 0;
         Range0flag           = 0;
-        Alt_ref              = Alt_ref0;
+        Alt_ref              = Alt_ref0;  // Altitude de referência padrão (0.5m)
         Stick_return_flag    = 0;
         Landing_state        = 0;
         Auto_takeoff_counter = 0;
+
+        // Reset dos filtros e controladores PID
         Thrust_filtered.reset();
         EstimatedAltitude.reset();
         Duty_fr.reset();
@@ -399,12 +425,15 @@ void loop_400Hz(void) {
 
         // Rate Control
         rate_control();
+    }else if (Mode == AUTONOMOUS_MODE) {
+        autonomous_flight();
     }
 
     //// Telemetry
     // telemetry_fast();
-    telemetry();
+    telemetry(); // Telemetry com mais dados, mas mais lento
 
+    
     uint32_t ce_time = micros();
     Dt_time          = ce_time - cs_time;
     OldMode          = Mode;  // Memory now mode
@@ -527,21 +556,243 @@ void flip(void) {
     }
 }
 
+
+void autonomous_flight(void) {
+    static uint8_t auto_state = 0; // 0: takeoff, 1: forward 1m, 2: square 2x2m
+    static uint8_t square_side = 0;
+    static uint8_t Current_square_side = 0;
+    static bool initialized = false;
+    static bool is_it_first_time_entering_this_if = false;
+
+    const float takeoff_height = 0.95f;
+    const float half_square_size = 1.0f;
+    const float square_size = 2.0f;
+    //const float wall_x = 3.0f; // ULTIMO CASO SE MUITA COISA TIVER A DAR MAL (dps explico se for necessario)
+
+    if (OldMode != AUTONOMOUS_MODE) {
+        initialized = false;
+        auto_state = 0;
+        square_side = 0;
+    }
+
+    if (!initialized) {
+        Pos_x = 0.0f;
+        Pos_y = 0.0f;
+        Vel_x = 0.0f;
+        Vel_y = 0.0f;
+        initialized = true;
+    }
+
+    Control_period = Interval_time;
+
+    // altitude hold
+    Alt_flag = 1;
+    Alt_ref = 1.0f;
+    Thrust0 = get_trim_duty(Voltage);
+
+    // default attitude when not moving
+    Roll_angle_command = 0.0f;
+    Pitch_angle_command = 0.0f;
+    Yaw_angle_command = 0.0f;
+
+    //return to origin point
+    if(return_base_flag || (Voltage <= V_threshold)){
+        if(is_it_first_time_entering_this_if){
+            if(Current_square_side != square_side){
+                //we are in a corner from there return to base
+                if(Return_to_base(square_side)){
+                    //reached base now land
+                    Mode = AUTO_LANDING_MODE;
+                }
+            }
+        }else{
+            Current_square_side = square_side;
+            is_it_first_time_entering_this_if = true;
+        }
+        return;
+    }
+
+    //in case of emergency landing (eu comecei a escrever comentarios em ingles n liguem tou com sono)
+    if(emergency_landing_flag){
+        Mode = AUTO_LANDING_MODE;
+        return;
+    }
+
+    if (auto_state == 0) {
+
+        //descola ate a altura especificada
+        auto_state = takeoff(takeoff_height);
+
+    } else if (auto_state == 1) {
+        
+        //vai ate a aresta frontal
+        auto_state = go_to_square_perimeter(half_square_size);
+
+    } else if (auto_state == 2) {
+        
+        //vai do meio da aresta ate ao canto a direita
+        auto_state = go_to_square_conner(half_square_size, &square_side)
+
+    }else if (auto_state == 3){
+
+        //faz o loop ate ser parado
+        loop_perimeter_of_square(half_square_size, &square_side);
+
+    }
+
+    
+
+    //REVER ISTO
+    // ULTIMO CASO SE MUITA COISA TIVER A DAR MAL (dps explico se for necessario)
+    /*if ((square_side == 3) && (RangeFront > 0) && (RangeFront < 4000)) {
+        float front_m = (float)RangeFront / 1000.0f;
+        Pos_x = wall_x - front_m;
+        Vel_x = 0.0f;
+    }*/
+
+    angle_control();
+    rate_control();
+}
+
+uint8_t takeoff(const float takeoff_height){
+    if(Altitude2 >= takeoff_height){
+        return 1;
+    }
+    return 0;
+}
+
+uint8_t go_to_square_perimeter(const float half_square_size){
+    if (fly_to_point(0.0f, half_square_size)) {
+        return 2;
+    } 
+    return 1;
+}
+
+uint8_t go_to_square_conner(const float half_square_size, uint8_t *square_side){
+    if (fly_to_point(half_square_size, half_square_size)) {
+        *square_side = 0;
+        return 3;
+    }
+    return 2;
+}
+
+void loop_perimeter_of_square(const float half_square_size, uint8_t *square_side){
+    if (*square_side == 0) { //(1,1) -> (-1,1)
+        if (fly_to_point(-half_square_size, half_square_size)) {
+            *square_side = 1;
+        }
+    } else if (*square_side == 1) { // (-1,1) -> (-1,-1)
+        if (fly_to_point(-half_square_size, -half_square_size)) {
+            *square_side = 2;
+        }
+    } else if (*square_side == 2) { // (-1,-1) -> (1,-1)
+        if (fly_to_point(half_square_size, -half_square_size)) {
+            *square_side = 3;
+        }
+    } else if (*square_side == 3) { // (1,-1) -> (1,1)
+        if (fly_to_point(half_square_size, half_square_size)) {
+            *square_side = 0;
+        } 
+    }
+    return;
+}
+
+bool Return_to_base(uint8_t square_side){
+    static bool second_part = false;
+    if (square_side == 0 || square_side == 1) { //(1,1) -> (0,0)
+       if(second_part == false){
+            //first part (X,Y) -> (0,1)
+            if(fly_to_point(0.0f, half_square_size)){
+                second_part = true;
+            }
+       }else{
+            //second part (0,1) -> (0,0)
+            if(fly_to_point(0.0f, 0.0f)){
+                return true; //reached origin, land
+            }
+       }
+    } else if (square_side == 2 || square_side == 3) { // (-1,-1) -> (0,0)
+        if(second_part == false){
+            //first part (X,Y) -> (0,-1)
+            if(fly_to_point(0.0f, -half_square_size)){
+                second_part = true;
+            }
+       }else{
+            //second part (0,-1) -> (0,0)
+            if(fly_to_point(0.0f, 0.0f)){
+                return true; //reached origin, land
+            }
+       }
+    } 
+    return false;
+}
+
+// Velocidade máxima
+const float MAX_VELOCITY = 0.5f;  // m/s
+
+// Calcula velocidade de aproximação baseada na distância
+float get_approach_velocity(float distance_to_target) {
+    const float deceleration_distance = 1.0f;  // distância para começar a travar
+    
+    if (distance_to_target <= deceleration_distance) {
+        // Perto do target: velocidade proporcional à distância
+        return MAX_VELOCITY * (distance_to_target / deceleration_distance);
+    } else {
+        // Longe do target: velocidade máxima
+        return MAX_VELOCITY;
+    }
+}
+
+bool fly_to_point(const float target_x, const float target_y) {
+    
+    float dx = target_x - Pos_x;
+    float dy = target_y - Pos_y;
+    float distance = sqrt(dx*dx + dy*dy);
+    
+    if (distance < 0.1f) {
+        Roll_angle_command = 0.0f;
+        Pitch_angle_command = 0.0f;
+        return true; // Alcançou o ponto
+    }
+    
+    // Direção no mundo (0 a 1)
+    float dir_x = dx / distance;
+    float dir_y = dy / distance;
+    
+    // Transformação: Mundo → Corpo usando Yaw
+    // forward = componente no eixo do nariz do drone
+    // right    = componente no eixo lateral do drone
+    float forward = dir_x * cos(Yaw_angle) + dir_y * sin(Yaw_angle);
+    float right   = -dir_x * sin(Yaw_angle) + dir_y * cos(Yaw_angle);
+    
+    // Velocidade baseada na distância
+    float desired_velocity = get_approach_velocity(distance);
+    float command_factor = desired_velocity / MAX_VELOCITY;
+    const float MAX_ANGLE = 0.1f;
+    
+    // Comando em coordenadas do corpo
+    Pitch_angle_command = MAX_ANGLE * forward * command_factor;  // + frente, - trás
+    Roll_angle_command  = MAX_ANGLE * right   * command_factor;  // + direita, - esquerda
+    return false; // Ainda não alcançou o ponto
+}
+
+
+
 uint8_t judge_mode_change(void) {
-    // Ariming Button が押されて離されたかを確認
+    // Ariming Button detection with chatter prevention
     uint8_t state;
-    static uint8_t chatter = 0;
+    static uint8_t chatter = 0; // Mantém estado entre chamadas pq é static
     state                  = 0;
-    if (chatter == 0) {
-        if (get_arming_button() == 1) {
-            chatter = 1;
+    if (chatter == 0) {                    // Se estava aguardando...
+        if (get_arming_button() == 1) {    // ...e botão pressionado agora
+            chatter = 1;                   // Marca que foi pressionado
         }
     } else {
-        if (get_arming_button() == 0) {
-            chatter++;
-            if (chatter > 40) {
-                chatter = 0;
-                state   = 1;
+        if (get_arming_button() == 0) {    // Se botão agora está solto...
+            chatter++;                     // Incrementa contador (1→2→3→...→41)
+            if (chatter > 40) {            // Esperou 40 iterações?
+                chatter = 0;               // Reset para próximo ciclo
+                state   = 1;               // Retorna 1 = detecção confirmada!
             }
         }
     }

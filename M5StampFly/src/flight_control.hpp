@@ -44,6 +44,9 @@
 #define AUTO_LANDING_MODE 5
 #define FLIP_MODE         6
 
+//nosso modo autônomo
+#define AUTONOMOUS_MODE   7
+
 #define POWER_LIMIT         3.34
 #define UNDER_VOLTAGE_COUNT 100
 

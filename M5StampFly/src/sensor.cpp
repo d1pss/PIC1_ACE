@@ -52,6 +52,10 @@ volatile float Accel_z_d;
 volatile float Accel_z_offset = 0.0f;
 volatile float Accel_x_raw, Accel_y_raw, Accel_z_raw;
 volatile float Accel_x, Accel_y, Accel_z;
+//adicionei isto
+volatile float Vel_x = 0.0f, Vel_y = 0.0f;
+volatile float Pos_x = 0.0f, Pos_y = 0.0f;
+
 volatile float Roll_rate_raw, Pitch_rate_raw, Yaw_rate_raw;
 volatile float Mx, My, Mz, Mx0, My0, Mz0, Mx_ave, My_ave, Mz_ave;
 volatile int16_t RawRange      = 0;
@@ -330,8 +334,25 @@ float sensor_read(void) {
         if (Range0flag > RNAGE0FLAG_MAX) Range0flag = RNAGE0FLAG_MAX;
         Alt_velocity = EstimatedAltitude.Velocity;
         Az_bias      = EstimatedAltitude.Bias;
-        // USBSerial.printf("Sens=%f Az=%f Altitude=%f Velocity=%f Bias=%f\n\r",Altitude, Az, Altitude2, Alt_velocity,
-        // Az_bias);
+
+        //adicionei isto (basicamente calcula a posiçao em 2D do drone)
+        // Integrate horizontal position using IMU acceleration and yaw
+        
+        float accel_to_ms2 = 9.81f;
+        float ax = Accel_x * accel_to_ms2;
+        float ay = Accel_y * accel_to_ms2;
+        float cy = cos(Yaw_angle);
+        float sy = sin(Yaw_angle);
+        float ax_world = cy * ax - sy * ay;
+        float ay_world = sy * ax + cy * ay;
+
+        Vel_x += ax_world * Interval_time;
+        Vel_y += ay_world * Interval_time;
+
+        Pos_x += Vel_x * Interval_time;
+        Pos_y += Vel_y * Interval_time;
+
+        // USBSerial.printf("Pos=(%f,%f) Vel=(%f,%f)\n\r", Pos_x, Pos_y, Vel_x, Vel_y);
     }
 
     // Accel fail safe
