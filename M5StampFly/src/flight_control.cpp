@@ -640,21 +640,25 @@ void autonomous_flight(void) {
     if (auto_state == 0) {
 
         //descola ate a altura especificada
+        USBSerial.printf("-Takeoff-\n");
         auto_state = takeoff(takeoff_height);
 
     } else if (auto_state == 1) {
         
         //vai ate a aresta frontal
+        USBSerial.printf("-go_to_square_perimeter-\n");
         auto_state = go_to_square_perimeter(half_square_size);
 
     } else if (auto_state == 2) {
         
         //vai do meio da aresta ate ao canto a direita
+        USBSerial.printf("-go_to_square_corner-\n");
         auto_state = go_to_square_conner(half_square_size, &square_side);
 
     }else if (auto_state == 3){
 
         //faz o loop ate ser parado
+        USBSerial.printf("-loop_perimeter_of_square-\n");
         loop_perimeter_of_square(half_square_size, &square_side);
 
     }
