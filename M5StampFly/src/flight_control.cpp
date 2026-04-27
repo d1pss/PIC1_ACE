@@ -340,6 +340,7 @@ void loop_400Hz(void) {
 
     // Begin Mode select
     if (Mode == INIT_MODE) {
+        USBSerial.printf("-Mode == INIT_MODE-\n");
         motor_stop();
         Elevator_center    = 0.0f;
         Aileron_center     = 0.0f;
@@ -351,6 +352,7 @@ void loop_400Hz(void) {
         Mode = AVERAGE_MODE;
         return;
     } else if (Mode == AVERAGE_MODE) {
+        USBSerial.printf("-Mode == AVERAGE_MODE-\n");
         motor_stop();
         // Gyro offset Estimate
         //calibrar o offset do giroscópio
@@ -365,6 +367,8 @@ void loop_400Hz(void) {
         return;
     } else if (Mode == FLIGHT_MODE) {
         Control_period = Interval_time;
+
+        USBSerial.printf("-Mode == FLIGHT_MODE-\n");
 
         //Verificar se comando ativou auto
         if (auto_flag == 1) {
@@ -440,6 +444,7 @@ void loop_400Hz(void) {
         // Rate Control
         rate_control();
     }else if (Mode == AUTONOMOUS_MODE) {
+        USBSerial.printf("-----------Mode == AUTONOMOUS_MODE-----------\n");
         autonomous_flight();
     }
 
