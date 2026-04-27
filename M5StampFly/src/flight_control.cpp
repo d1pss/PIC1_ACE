@@ -610,6 +610,12 @@ void autonomous_flight(void) {
     Alt_flag = 1;
     Alt_ref = 1.0f;
     // Thrust0 is now set progressively in takeoff() function
+    
+    // Initialize Thrust_command to enable altitude control
+    // This breaks the circular dependency: Thrust_command > threshold -> altitude control -> Thrust_command
+    if (Thrust_command < Motor_on_duty_threshold * BATTERY_VOLTAGE) {
+        Thrust_command = Thrust0 * BATTERY_VOLTAGE;
+    }
 
     // default attitude when not moving
     Roll_angle_command = 0.0f;
