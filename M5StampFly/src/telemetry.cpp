@@ -42,6 +42,15 @@ void make_telemetry_data(uint8_t* senddata);
 void make_telemetry_data_fast(uint8_t* senddata);
 void data2log(uint8_t* data_list, float add_data, uint8_t index);
 void float2byte(float x, uint8_t* dst);
+
+/**
+ * @brief Concatena um pacote de dados (newdata) de tamanho (len) a partir do bit (index)
+ * 
+ * @param data 
+ * @param newdata 
+ * @param index 
+ * @param len 
+ */
 void append_data(uint8_t* data, uint8_t* newdata, uint8_t index, uint8_t len);
 void data_set(uint8_t* datalist, float value, uint8_t* index);
 void data_set_uint32(uint8_t* datalist, uint32_t value, uint8_t* index);

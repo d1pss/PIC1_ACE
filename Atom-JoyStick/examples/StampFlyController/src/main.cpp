@@ -29,6 +29,10 @@
 #include "main.h"
 #include <FS.h>
 #include <SPIFFS.h>
+
+// Added by Francisco - 
+#include "user_custom.h"
+
 #include "lvgl_porting.h"
 
 #include "./images/pair_confirm.h"
@@ -98,6 +102,21 @@ volatile uint32_t proactive_flag_counter = 0;
 uint8_t Addr1[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t Addr2[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
+
+//Some stations:
+
+//ALVALADE: 0 //DEVKIT Old  - {0x30, 0xAE, 0xA4, 0x86, 0x80, 0x78}
+//DRAGAO:   1 //DEVKIT New  - {0xE0, 0x8C, 0xFE, 0x5D, 0xE5, 0x80}
+//EUSEBIO:  2 //JOYIT       - {0x8C, 0x4F, 0x00, 0x28, 0x06, 0x24}
+
+//const uint8_t ALVALADE[6] = {0x30, 0xAE, 0xA4, 0x86, 0x80, 0x78};
+//const uint8_t DRAGAO[6]   = {0xE0, 0x8C, 0xFE, 0x5D, 0xE5, 0x80};
+//const uint8_t EUSEBIO[6]  = {0x8C, 0x4F, 0x00, 0x28, 0x06, 0x24};
+
+
+
+
+
 // Channel
 uint8_t Ch_counter;
 volatile uint8_t Received_flag             = 0;
@@ -113,6 +132,12 @@ void task_tone(void *pvParameters);
 
 // 受信コールバック
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *recv_data, int data_len) {
+
+    /*
+    XX - FLY data
+    else (or maybe XY as a new type) - Station Data
+    */
+
     if (is_peering) {
         if (recv_data[7] == 0xaa && recv_data[8] == 0x55 && recv_data[9] == 0x16 && recv_data[10] == 0x88) {
             Received_flag = 1;
@@ -318,6 +343,7 @@ void setup() {
     display.begin();
     display.setEpdMode(epd_mode_t::epd_quality);
 
+    // Se o botão estiver impresso ou o endereço Addr2 guardado estiver inicializado com 0xFFFFFFF...., Comando prossegue a conectar
     if (M5.Btn.isPressed() || (Addr2[0] == 0xFF && Addr2[1] == 0xFF && Addr2[2] == 0xFF && Addr2[3] == 0xFF &&
                                Addr2[4] == 0xFF && Addr2[5] == 0xFF)) {
         display.startWrite();
@@ -343,6 +369,7 @@ void setup() {
 #else
     else
         rc_init(Channel, Addr2);
+        //rc_init_periferals()
 #endif
 
     xTaskCreatePinnedToCore(task_tone,          // 任务函数

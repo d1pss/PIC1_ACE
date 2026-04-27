@@ -56,6 +56,8 @@ extern volatile uint8_t proactive_flag;
 extern volatile uint32_t proactive_flag_counter;
 extern volatile uint8_t is_fly_flag;
 
+
+
 uint8_t check_control_mode_change(void);
 uint8_t check_alt_mode_change(void);
 

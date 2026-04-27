@@ -42,7 +42,7 @@ volatile uint16_t Connect_flag = 0;
 uint8_t TelemAddr[6] = {0};
 // uint8_t TelemAddr[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 volatile uint8_t MyMacAddr[6];
-volatile uint8_t peer_command[4] = {0xaa, 0x55, 0x16, 0x88};
+volatile uint8_t peer_command[4] = {0xaa, 0x55, 0x16, 0x88}; // Indicador de vontade de enviar comando PEER ao ATOM
 volatile uint8_t Rc_err_flag     = 0;
 esp_now_peer_info_t peerInfo;
 
@@ -51,6 +51,26 @@ volatile float Stick[16];
 volatile uint8_t Recv_MAC[3];
 
 void on_esp_now_sent(const uint8_t *mac_addr, esp_now_send_status_t status);
+
+
+
+
+uint8_t external_esp_mac[] = {0x30, 0xAE, 0xA4, 0x86, 0x80, 0x78}; // Your Sniffer MAC
+
+void register_second_esp() {
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, external_esp_mac, 6);
+    peerInfo.channel = 0; // Use current channel
+    peerInfo.encrypt = false;
+
+    if (!esp_now_is_peer_exist(external_esp_mac)) {
+        esp_now_add_peer(&peerInfo);
+    }
+}
+
+
+
+
 
 // 受信コールバック
 void OnDataRecv(const uint8_t *mac_addr, const uint8_t *recv_data, int data_len) {
@@ -168,15 +188,16 @@ void rc_init(void) {
     }
 
     // MACアドレスブロードキャスト
+    // Enable Broadcast Address - Communicates to every ESP in reach
     uint8_t addr[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     memcpy(peerInfo.peer_addr, addr, 6);
     peerInfo.channel = CHANNEL;
-    peerInfo.encrypt = false;
+    peerInfo.encrypt = false;       // We can't have encryption in a broadcast
     if (esp_now_add_peer(&peerInfo) != ESP_OK) {
         USBSerial.println("Failed to add peer");
         return;
     }
-    esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_channel(CHANNEL, WIFI_SECOND_CHAN_NONE); // Uses always the same channel
 
     // Send my MAC address
     for (uint16_t i = 0; i < 50; i++) {
@@ -198,6 +219,11 @@ void rc_init(void) {
     // ESP-NOWコールバック登録
     esp_now_register_recv_cb(OnDataRecv);
     USBSerial.println("ESP-NOW Ready.");
+
+
+    register_second_esp();
+
+
 }
 
 void send_peer_info(void) {

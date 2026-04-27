@@ -33,6 +33,7 @@
 
 void setup() {
     init_copter();
+    USBSerial.println("Welcome to the Air & Land ACE demo.");
     delay(100);
 }
 
