@@ -197,6 +197,7 @@ float T_flip;
 volatile uint8_t auto_flag = 1;  // 0: manual, 1: autonomous
 volatile uint8_t return_base_flag = 0;
 volatile uint8_t emergency_landing_flag = 0;
+static uint16_t auto_takeoff_counter = 0;  // Counter for autonomous takeoff ramp
 //******************************************************************************************/
 
 // PID object and etc.
@@ -592,6 +593,7 @@ void autonomous_flight(void) {
         initialized = false;
         auto_state = 0;
         square_side = 0;
+        auto_takeoff_counter = 0;  // Reset takeoff ramp counter
     }
 
     if (!initialized) {
@@ -604,10 +606,10 @@ void autonomous_flight(void) {
 
     Control_period = Interval_time;
 
-    // altitude hold
+    // altitude hold enabled
     Alt_flag = 1;
     Alt_ref = 1.0f;
-    Thrust0 = get_trim_duty(Voltage);
+    // Thrust0 is now set progressively in takeoff() function
 
     // default attitude when not moving
     Roll_angle_command = 0.0f;
@@ -678,7 +680,25 @@ void autonomous_flight(void) {
 }
 
 uint8_t takeoff(const float takeoff_height){
+    // Progressive thrust ramp (same as original auto takeoff)
+    // 0 -> 500: ramp from 0 to trim_duty(3.8)
+    // 500 -> 1000: ramp from trim_duty(3.8) to trim_duty(Voltage)
+    // 1000+: hold at trim_duty(Voltage)
+    if (auto_takeoff_counter < 500) {
+        Thrust0 = (float)auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(3.8f)) Thrust0 = get_trim_duty(3.8f);
+        auto_takeoff_counter++;
+    } else if (auto_takeoff_counter < 1000) {
+        Thrust0 = (float)auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(Voltage)) Thrust0 = get_trim_duty(Voltage);
+        auto_takeoff_counter++;
+    } else {
+        Thrust0 = get_trim_duty(Voltage);
+    }
+    
+    // Check if target altitude reached
     if(Altitude2 >= takeoff_height){
+        auto_takeoff_counter = 0;  // Reset for next takeoff
         return 1;
     }
     return 0;
