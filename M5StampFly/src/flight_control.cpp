@@ -28,14 +28,21 @@
 //
 // Desigend by Kouhei Ito 2023~2024
 //
-// 2024-06-20 高度制御改良　段差対応
-// 2024-06-25 高度制御改良　上昇持続バグ修正
-// 2024-06-29 自動離陸追加
-// 2024-06-29 自動着陸追加
-// 2024-06-29 送信機OFFで自動着陸
+// 2024-06-20 高度制御改良　段差対応 
+//traduçao: Altitude control improvement step response
+// 2024-06-25 高度制御改良　上昇持続バグ修正 
+//traduçao: Altitude control improvement bug fix for continuous ascent
+// 2024-06-29 自動離陸追加 
+//traduçao: Auto takeoff added
+// 2024-06-29 自動着陸追加 
+//traduçao: Auto landing added
+// 2024-06-29 送信機OFFで自動着陸 
+//traduçao: Auto landing when transmitter is off
 // 2024-06-29 着陸時、Madgwick Filter Off
-// 2024-07-21 flip関数追加、高度センサの測定限界で自動降下（暫定版）
-// 2024-08-10 Acroモードで高度制御働かないバグを修正
+// 2024-07-21 flip関数追加、高度センサの測定限界で自動降下（暫定版） 
+//traducao: Flip function added, automatic descent at altitude sensor measurement limit (provisional version)
+// 2024-08-10 Acroモードで高度制御働かないバグを修正 
+//traducao: Fixed a bug where altitude control does not work in Acro mode
 
 #include "flight_control.hpp"
 #include "rc.hpp"
@@ -187,7 +194,7 @@ float T_flip;
 // implementar forma de mudar estas flags a partir do comando por esp_now
 //***************************************TODO***********************************************/
 #define V_threshold 3.8
-volatile uint8_t auto_flag = 0;
+volatile uint8_t auto_flag = 1;  // 0: manual, 1: autonomous
 volatile uint8_t return_base_flag = 0;
 volatile uint8_t emergency_landing_flag = 0;
 //******************************************************************************************/
@@ -211,10 +218,10 @@ Filter Duty_rl;
 volatile float Thrust0 = 0.0;
 uint8_t Alt_flag       = 0;
 
-// 速度目標Z
+// 速度目標Z traduçao: Velocity reference Z
 float Z_dot_ref = 0.0f;
 
-// 高度目標
+// 高度目標 traduçao: Altitude reference
 const float Alt_ref0   = 0.5f;
 volatile float Alt_ref = Alt_ref0;
 
@@ -242,6 +249,13 @@ void flip(void);
 //******************************************************************************************/
 //funçao de voo autônomo
 void autonomous_flight(void);
+uint8_t takeoff(const float takeoff_height);
+uint8_t go_to_square_perimeter(const float half_square_size);
+uint8_t go_to_square_conner(const float half_square_size, uint8_t *square_side);
+void loop_perimeter_of_square(const float half_square_size, uint8_t *square_side);
+bool fly_to_point(const float target_x, const float target_y);
+float get_approach_velocity(float distance_to_target);
+bool Return_to_base(uint8_t square_side, const float half_square_size);
 //******************************************************************************************/
 float get_rate_ref(float x);
 
@@ -600,7 +614,7 @@ void autonomous_flight(void) {
         if(is_it_first_time_entering_this_if){
             if(Current_square_side != square_side){
                 //we are in a corner from there return to base
-                if(Return_to_base(square_side)){
+                if(Return_to_base(square_side, half_square_size)){
                     //reached base now land
                     Mode = AUTO_LANDING_MODE;
                 }
@@ -631,7 +645,7 @@ void autonomous_flight(void) {
     } else if (auto_state == 2) {
         
         //vai do meio da aresta ate ao canto a direita
-        auto_state = go_to_square_conner(half_square_size, &square_side)
+        auto_state = go_to_square_conner(half_square_size, &square_side);
 
     }else if (auto_state == 3){
 
@@ -697,7 +711,7 @@ void loop_perimeter_of_square(const float half_square_size, uint8_t *square_side
     return;
 }
 
-bool Return_to_base(uint8_t square_side){
+bool Return_to_base(uint8_t square_side, const float half_square_size){
     static bool second_part = false;
     if (square_side == 0 || square_side == 1) { //(1,1) -> (0,0)
        if(second_part == false){
