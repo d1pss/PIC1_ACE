@@ -27,6 +27,7 @@
 #include "imu.hpp"
 #include "tof.hpp"
 #include "flight_control.hpp"
+#include <cmath>
 
 Madgwick Drone_ahrs;
 Alt_kalman EstimatedAltitude;
@@ -44,12 +45,19 @@ Filter raw_gy_filter;
 Filter raw_gz_filter;
 Filter alt_filter;
 
+//ADICIONEI ISTO
+Filter vel_x_filter;  // Filter para reduzir ruído na velocidade X
+Filter vel_y_filter;  // Filter para reduzir ruído na velocidade Y
+Filter pos_x_filter;  // Filter para reduzir ruído na posição X
+Filter pos_y_filter;  // Filter para reduzir ruído na posição Y
+
 // Sensor data
 volatile float Roll_angle = 0.0f, Pitch_angle = 0.0f, Yaw_angle = 0.0f;
 volatile float Roll_rate, Pitch_rate, Yaw_rate;
 volatile float Roll_rate_offset = 0.0f, Pitch_rate_offset = 0.0f, Yaw_rate_offset = 0.0f;
 volatile float Accel_z_d;
 volatile float Accel_z_offset = 0.0f;
+volatile float Accel_x_offset = 0.0f, Accel_y_offset = 0.0f;  // Offset para remover bias X e Y
 volatile float Accel_x_raw, Accel_y_raw, Accel_z_raw;
 volatile float Accel_x, Accel_y, Accel_z;
 //adicionei isto
@@ -107,7 +115,11 @@ void sensor_reset_offset(void) {
     Roll_rate_offset  = 0.0f;
     Pitch_rate_offset = 0.0f;
     Yaw_rate_offset   = 0.0f;
+    //adicionei isto para resetar os offsets de aceleração em X e Y, além de Z
     Accel_z_offset    = 0.0f;
+    Accel_x_offset    = 0.0f;
+    Accel_y_offset    = 0.0f;
+
     Offset_counter    = 0;
 }
 
@@ -115,7 +127,10 @@ void sensor_calc_offset_avarage(void) {
     Roll_rate_offset  = (Offset_counter * Roll_rate_offset + Roll_rate_raw) / (Offset_counter + 1);
     Pitch_rate_offset = (Offset_counter * Pitch_rate_offset + Pitch_rate_raw) / (Offset_counter + 1);
     Yaw_rate_offset   = (Offset_counter * Yaw_rate_offset + Yaw_rate_raw) / (Offset_counter + 1);
+    // adicionei isto para calcular o offset de aceleração em X e Y, além de Z
     Accel_z_offset    = (Offset_counter * Accel_z_offset + Accel_z_raw) / (Offset_counter + 1);
+    Accel_x_offset    = (Offset_counter * Accel_x_offset + Accel_x_raw) / (Offset_counter + 1);
+    Accel_y_offset    = (Offset_counter * Accel_y_offset + Accel_y_raw) / (Offset_counter + 1);
 
     Offset_counter++;
 }
@@ -128,6 +143,14 @@ void test_voltage(void) {
 
 void ahrs_reset(void) {
     Drone_ahrs.reset();
+}
+
+// Reseta posição e velocidade (útil para testes/debugging)
+void sensor_reset_position(void) {
+    Vel_x = 0.0f;
+    Vel_y = 0.0f;
+    Pos_x = 0.0f;
+    Pos_y = 0.0f;
 }
 
 void sensor_init() {
@@ -171,6 +194,13 @@ void sensor_init() {
     raw_az_d_filter.set_parameter(0.1, 0.0025);  // alt158
     az_filter.set_parameter(0.1, 0.0025);        // alt158
     alt_filter.set_parameter(0.005, 0.0025);
+
+    //adicionei isto 
+    // Filtros para velocidade e posição (reduz ruído da integração dupla)
+    vel_x_filter.set_parameter(0.05, 0.0025);    // Aumentado: mais agressivo na filtragem
+    vel_y_filter.set_parameter(0.05, 0.0025);
+    pos_x_filter.set_parameter(0.03, 0.0025);    // Aumentado: mais agressivo
+    pos_y_filter.set_parameter(0.03, 0.0025);
 }
 
 float sensor_read(void) {
@@ -248,6 +278,18 @@ float sensor_read(void) {
 
         az_filter.reset();
         alt_filter.reset();
+
+        // Reset filtros de velocidade e posição
+        vel_x_filter.reset();
+        vel_y_filter.reset();
+        pos_x_filter.reset();
+        pos_y_filter.reset();
+
+        // Reset posição e velocidade quando entra em modo parking
+        Vel_x = 0.0f;
+        Vel_y = 0.0f;
+        Pos_x = 0.0f;
+        Pos_y = 0.0f;
 
         acc_filter.reset();
     }
@@ -338,19 +380,55 @@ float sensor_read(void) {
         //adicionei isto (basicamente calcula a posiçao em 2D do drone)
         // Integrate horizontal position using IMU acceleration and yaw
         
+        // Dead zone para aceleração: 0.5 m/s² (reduzida porque agora remover gravidade)
+        const float ACCEL_DEADZONE = 0.5f;
+        const float VEL_DAMPING = 0.80f;  // Reduz velocidade MUITO (20% damping por ciclo)
+        const float VEL_STOP_THRESHOLD = 0.05f;  // Se |Vel| < 50mm/s e sem aceleração, para
+        
         float accel_to_ms2 = 9.81f;
-        float ax = Accel_x * accel_to_ms2;
-        float ay = Accel_y * accel_to_ms2;
+        float az_compensated = (Accel_z - Accel_z_offset) * accel_to_ms2 - 9.81f;  // Remove gravidade de Z
+        
+        // Remove componente da gravidade baseada em Roll/Pitch
+        // Quando inclinado: parte da gravidade aparece em X e Y
+        float cr = cos(Roll_angle);
+        float sr = sin(Roll_angle);
+        float cp = cos(Pitch_angle);
+        float sp = sin(Pitch_angle);
+        
+        // Aceleração compensada (remove gravidade)
+        float ax_comp = ((Accel_x - Accel_x_offset) * accel_to_ms2) - (9.81f * sr);
+        float ay_comp = ((Accel_y - Accel_y_offset) * accel_to_ms2) - (9.81f * sp);
+        
+        // Aplicar dead zone
+        float ax = (fabs(ax_comp) > ACCEL_DEADZONE) ? ax_comp : 0.0f;
+        float ay = (fabs(ay_comp) > ACCEL_DEADZONE) ? ay_comp : 0.0f;
+        
+        // Se aceleração é zero, aplicar damping na velocidade (simula atrito/fricção)
+        if (ax == 0.0f) {
+            Vel_x *= VEL_DAMPING;
+            if (fabs(Vel_x) < VEL_STOP_THRESHOLD) Vel_x = 0.0f;
+        }
+        if (ay == 0.0f) {
+            Vel_y *= VEL_DAMPING;
+            if (fabs(Vel_y) < VEL_STOP_THRESHOLD) Vel_y = 0.0f;
+        }
+        
+        // Transformar para coordenadas globais (world frame) - apenas rotação por Yaw
         float cy = cos(Yaw_angle);
         float sy = sin(Yaw_angle);
         float ax_world = cy * ax - sy * ay;
         float ay_world = sy * ax + cy * ay;
 
-        Vel_x += ax_world * Interval_time;
-        Vel_y += ay_world * Interval_time;
+        // Integrar velocidade com filtro
+        Vel_x = vel_x_filter.update(Vel_x + ax_world * Interval_time, Interval_time);
+        Vel_y = vel_y_filter.update(Vel_y + ay_world * Interval_time, Interval_time);
 
-        Pos_x += Vel_x * Interval_time;
-        Pos_y += Vel_y * Interval_time;
+        // Integrar posição com filtro
+        Pos_x = pos_x_filter.update(Pos_x + Vel_x * Interval_time, Interval_time);
+        Pos_y = pos_y_filter.update(Pos_y + Vel_y * Interval_time, Interval_time);
+        
+        // Debug: descomentar para visualizar valores (mostra ax_raw para ver offset drift)
+        //USBSerial.printf("ax_raw=%f ay_raw=%f ax=%f ay=%f Vel_x=%f Vel_y=%f Pos_x=%f Pos_y=%f\n\r", ax_raw, ay_raw, ax, ay, Vel_x, Vel_y, Pos_x, Pos_y);
 
         // USBSerial.printf("Sens=%f Az=%f Altitude=%f Velocity=%f Bias=%f\n\r",Altitude, Az, Altitude2, Alt_velocity,
         // Az_bias);

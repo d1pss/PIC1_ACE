@@ -74,6 +74,9 @@ extern volatile float Roll_rate, Pitch_rate, Yaw_rate;
 extern volatile float Accel_x_raw, Accel_y_raw, Accel_z_raw;
 extern volatile float Accel_x, Accel_y, Accel_z;
 extern volatile float Accel_z_d;
+extern volatile float Accel_z_offset;
+extern volatile float Accel_x_offset;
+extern volatile float Accel_y_offset;
 //adicionei isto
 extern volatile float Vel_x, Vel_y;
 extern volatile float Pos_x, Pos_y;
@@ -102,6 +105,7 @@ void sensor_init(void);
 float sensor_read(void);
 void sensor_reset_offset(void);
 void sensor_calc_offset_avarage(void);
+void sensor_reset_position(void);  // Reseta Pos_x, Pos_y, Vel_x, Vel_y
 void ahrs_reset(void);
 uint8_t scan_i2c(void);
 

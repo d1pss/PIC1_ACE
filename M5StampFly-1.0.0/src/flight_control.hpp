@@ -30,7 +30,7 @@
 #include <stdint.h>
 #include <math.h>
 #include <FastLED.h>
-#include <vl53lx_platform.h>
+#include "vl53lx_ll_def.h"
 
 #define BATTERY_VOLTAGE (3.7)
 #define PIN_BUTTON      0
@@ -43,6 +43,8 @@
 #define LOG_MODE          4
 #define AUTO_LANDING_MODE 5
 #define FLIP_MODE         6
+#define AUTONOMOUS_MODE   7
+#define TEST_MODE         8
 
 #define POWER_LIMIT         3.34
 #define UNDER_VOLTAGE_COUNT 100

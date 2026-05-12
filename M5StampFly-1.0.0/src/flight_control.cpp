@@ -187,10 +187,11 @@ float T_flip;
 // implementar forma de mudar estas flags a partir do comando por esp_now
 //***************************************TODO***********************************************/
 #define V_threshold 3.8
-volatile uint8_t auto_flag = 1;  // 0: manual, 1: autonomous
+volatile uint8_t auto_flag = 0;  // 0: manual, 1: autonomous
 volatile uint8_t return_base_flag = 0;
 volatile uint8_t emergency_landing_flag = 0;
 static uint16_t auto_takeoff_counter = 0;  // Counter for autonomous takeoff ramp
+uint8_t test_flag = 0;  // Flag for testing autonomous flight functions
 //******************************************************************************************/
 
 // PID object and etc.
@@ -331,6 +332,9 @@ void loop_400Hz(void) {
     // USBSerial.printf("Mode=%d OverG=%d\n\r", Mode, OverG_flag);
     // Begin Mode select
     if (Mode == INIT_MODE) {
+
+        USBSerial.printf("-Mode == INIT_MODE-\n");
+
         motor_stop();
         Elevator_center    = 0.0f;
         Aileron_center     = 0.0f;
@@ -342,6 +346,8 @@ void loop_400Hz(void) {
         Mode = AVERAGE_MODE;
         return;
     } else if (Mode == AVERAGE_MODE) {
+        USBSerial.printf("-Mode == AVERAGE_MODE-\n");
+
         motor_stop();
         // Gyro offset Estimate
         if (OffsetCounter < AVERAGENUM) {
@@ -357,6 +363,12 @@ void loop_400Hz(void) {
         Control_period = Interval_time;
 
         USBSerial.printf("-Mode == FLIGHT_MODE-\n");
+
+        // Go to test mode
+        if (test_flag == 1) {
+            Mode = TEST_MODE;
+            return;
+        }
 
         //Verificar se comando ativou auto
         if (auto_flag == 1) {
@@ -384,6 +396,9 @@ void loop_400Hz(void) {
         flip();
     } else if (Mode == PARKING_MODE) {
         // Judge Mode change
+
+        USBSerial.printf("-Mode == PARKING_MODE-\n");
+
         if (judge_mode_change() == 1) {
             for (int i = 0; i < 20; i++) {
                 ahrs_reset();
@@ -429,6 +444,32 @@ void loop_400Hz(void) {
 
         // Rate Control
         rate_control();
+    } else if (Mode == AUTONOMOUS_MODE) {
+        autonomous_flight();
+    } else if (Mode == TEST_MODE) {
+        // Test Mode
+        static bool initialized = false;
+        static int counter = 0;
+
+        if (!initialized) {
+            Pos_x = 0.0f;
+            Pos_y = 0.0f;
+            Vel_x = 0.0f;
+            Vel_y = 0.0f;
+            initialized = true;
+        }
+        
+        if(counter == 100){
+            //USBSerial.printf("a_X: %f, a_Y: %f, a_Z: %f\n", Accel_x, Accel_y, Accel_z);
+            //USBSerial.printf("  X: %f,   Y: %f,   Z: %f\n", Pos_x, Pos_y, Altitude2);
+            // Formato melhorado: mostra raw para ver offset drift
+            USBSerial.printf("ax_raw=%f ay_raw=%f Vel_x=%f Vel_y=%f Pos_x=%f Pos_y=%f\n\r", 
+                (Accel_x - Accel_x_offset) * 9.81f, (Accel_y - Accel_y_offset) * 9.81f, Vel_x, Vel_y, Pos_x, Pos_y);
+            counter = 0;
+        }
+        counter++;
+        
+    
     }
 
     //// Telemetry
@@ -584,6 +625,8 @@ void autonomous_flight(void) {
         initialized = true;
     }
 
+    USBSerial.printf("X: %f, Y: %f, Z: %f\n", Pos_x, Pos_y, Altitude2);
+
     Control_period = Interval_time;
 
     // altitude hold enabled
@@ -627,11 +670,20 @@ void autonomous_flight(void) {
 
     if (auto_state == 0) {
 
-        //descola ate a altura especificada
+        // descola ate a altura especificada
         USBSerial.printf("-Takeoff-\n");
-        auto_state = takeoff(takeoff_height);
+        if (keep_altitude(takeoff_height)) {
+            auto_state = 1;
+            Auto_takeoff_counter = 0; // keep altitude baseline for the next phase
+            USBSerial.printf("Takeoff altitude reached\n");
+        }
 
-    } else if (auto_state == 1) {
+    } else {
+        // mantém altitude durante o voo autónomo horizontal
+        keep_altitude(takeoff_height);
+    }
+
+    if (auto_state == 1) {
         
         //vai ate a aresta frontal
         USBSerial.printf("-go_to_square_perimeter-\n");
@@ -660,9 +712,43 @@ void autonomous_flight(void) {
         Pos_x = wall_x - front_m;
         Vel_x = 0.0f;
     }*/
+    
 
     angle_control();
     rate_control();
+}
+
+uint8_t keep_altitude(const float target_altitude){
+    // Auto Throttle Altitude Control for autonomous flight
+    Alt_flag = 1;
+    if (Auto_takeoff_counter < 500) {
+        Thrust0 = (float)Auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(3.8f)) Thrust0 = get_trim_duty(3.8f);
+        Auto_takeoff_counter++;
+    } else if (Auto_takeoff_counter < 1000) {
+        Thrust0 = (float)Auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(Voltage)) Thrust0 = get_trim_duty(Voltage);
+        Auto_takeoff_counter++;
+    } else {
+        Thrust0 = get_trim_duty(Voltage);
+    }
+
+    // Keep altitude target directly in autonomous mode
+    Alt_ref = target_altitude;
+    if (Alt_ref > ALT_REF_MAX) Alt_ref = ALT_REF_MAX;
+    if (Alt_ref < ALT_REF_MIN) Alt_ref = ALT_REF_MIN;
+
+    if ((Range0flag > OladRange0flag) || (Range0flag == RNAGE0FLAG_MAX)) {
+        Thrust0        = Thrust0 - 0.02f;
+        OladRange0flag = Range0flag;
+    }
+    Thrust_command = Thrust0 * BATTERY_VOLTAGE;
+
+    // Return true when the drone reaches the desired altitude
+    if (Altitude2 >= target_altitude - 0.05f) {
+        return 1;
+    }
+    return 0;
 }
 
 uint8_t takeoff(const float takeoff_height){
@@ -687,6 +773,12 @@ uint8_t takeoff(const float takeoff_height){
         auto_takeoff_counter = 0;  // Reset for next takeoff
         return 1;
     }
+
+    // Keep roll/pitch level during takeoff
+    Roll_angle_command = 0.0f;
+    Pitch_angle_command = 0.0f;
+    Yaw_angle_command = 0.0f;
+
     return 0;
 }
 
