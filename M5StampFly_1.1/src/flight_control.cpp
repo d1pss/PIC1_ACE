@@ -28,13 +28,21 @@
 //
 // Desigend by Kouhei Ito 2023~2024
 //
-// 2024-06-20 高度制御改良　段差対応
-// 2024-06-25 高度制御改良　上昇持続バグ修正
-// 2024-06-29 自動離陸追加
-// 2024-06-29 自動着陸追加
-// 2024-06-29 送信機OFFで自動着陸
+// 2024-06-20 高度制御改良　段差対応 
+//traduçao: Altitude control improvement step response
+// 2024-06-25 高度制御改良　上昇持続バグ修正 
+//traduçao: Altitude control improvement bug fix for continuous ascent
+// 2024-06-29 自動離陸追加 
+//traduçao: Auto takeoff added
+// 2024-06-29 自動着陸追加 
+//traduçao: Auto landing added
+// 2024-06-29 送信機OFFで自動着陸 
+//traduçao: Auto landing when transmitter is off
 // 2024-06-29 着陸時、Madgwick Filter Off
-// 2024-07-21 flip関数追加、高度センサの測定限界で自動降下（暫定版）
+// 2024-07-21 flip関数追加、高度センサの測定限界で自動降下（暫定版） 
+//traducao: Flip function added, automatic descent at altitude sensor measurement limit (provisional version)
+// 2024-08-10 Acroモードで高度制御働かないバグを修正 
+//traducao: Fixed a bug where altitude control does not work in Acro mode
 
 #include "flight_control.hpp"
 #include "rc.hpp"
@@ -73,12 +81,12 @@ float Control_period = 0.0025f;  // 400Hz
 
 // PID Gain
 // Rate control PID gain
-const float Roll_rate_kp  = 0.6f;
+const float Roll_rate_kp  = 0.65f;
 const float Roll_rate_ti  = 0.7f;
 const float Roll_rate_td  = 0.01;
 const float Roll_rate_eta = 0.125f;
 
-const float Pitch_rate_kp  = 0.75f;
+const float Pitch_rate_kp  = 0.95f;
 const float Pitch_rate_ti  = 0.7f;
 const float Pitch_rate_td  = 0.025f;
 const float Pitch_rate_eta = 0.125f;
@@ -182,7 +190,6 @@ float Flip_time                  = 2.0;
 volatile uint8_t Ahrs_reset_flag = 0;
 float T_flip;
 
-
 // Autonomous mode flag
 // implementar forma de mudar estas flags a partir do comando por esp_now
 //***************************************TODO***********************************************/
@@ -191,7 +198,6 @@ volatile uint8_t auto_flag = 0;  // 0: manual, 1: autonomous
 volatile uint8_t return_base_flag = 0;
 volatile uint8_t emergency_landing_flag = 0;
 static uint16_t auto_takeoff_counter = 0;  // Counter for autonomous takeoff ramp
-uint8_t test_flag = 1;  // Flag for testing autonomous flight functions
 //******************************************************************************************/
 
 // PID object and etc.
@@ -213,10 +219,10 @@ Filter Duty_rl;
 volatile float Thrust0 = 0.0;
 uint8_t Alt_flag       = 0;
 
-// 速度目標Z
+// 速度目標Z traduçao: Velocity reference Z
 float Z_dot_ref = 0.0f;
 
-// 高度目標
+// 高度目標 traduçao: Altitude reference
 const float Alt_ref0   = 0.5f;
 volatile float Alt_ref = Alt_ref0;
 
@@ -241,19 +247,19 @@ void reset_angle_control(void);
 uint8_t auto_landing(void);
 float get_trim_duty(float voltage);
 void flip(void);
-
 //******************************************************************************************/
 //funçao de voo autônomo
+bool fly_for_time(float pitch_cmd, float roll_cmd, float target_time);
 void autonomous_flight(void);
-uint8_t takeoff(const float takeoff_height);
-uint8_t go_to_square_perimeter(const float half_square_size);
-uint8_t go_to_square_conner(const float half_square_size, uint8_t *square_side);
-void loop_perimeter_of_square(const float half_square_size, uint8_t *square_side);
-bool fly_to_point(const float target_x, const float target_y);
-float get_approach_velocity(float distance_to_target);
-bool Return_to_base(uint8_t square_side, const float half_square_size);
-uint8_t keep_altitude(const float target_altitude);
-//******************************************************************************************/s
+//uint8_t takeoff(const float takeoff_height);
+//uint8_t go_to_square_perimeter(const float half_square_size);
+//uint8_t go_to_square_conner(const float half_square_size, uint8_t *square_side);
+void loop_perimeter_of_square(uint8_t* square_side);
+//bool fly_to_point(const float target_x, const float target_y);
+//float get_approach_velocity(float distance_to_target);
+bool Return_to_base(uint8_t square_side);
+//******************************************************************************************/
+float get_rate_ref(float x);
 
 // 割り込み関数
 // Intrupt function
@@ -266,6 +272,7 @@ void IRAM_ATTR onTimer() {
 void init_copter(void) {
     // Initialize Mode
     Mode = INIT_MODE;
+    motor_stop();
 
     // Initialaze LED function
     led_init();
@@ -286,10 +293,13 @@ void init_copter(void) {
     sensor_init();
     USBSerial.printf("Finish sensor init!\r\n");
 
+    motor_stop();
+
     // PID GAIN and etc. Init
     control_init();
 
     // Initilize Radio control
+    // inicializar a telemetria do esp-now protocol
     rc_init();
 
     // 割り込み設定
@@ -298,6 +308,8 @@ void init_copter(void) {
     timerAttachInterrupt(timer, &onTimer, true);
     timerAlarmWrite(timer, 2500, true);
     timerAlarmEnable(timer);
+
+    motor_stop();
 
     // init button G0
     init_button();
@@ -331,11 +343,11 @@ void loop_400Hz(void) {
     led_drive();
     // if (Interval_time>0.006)USBSerial.printf("%9.6f\n\r", Interval_time);
     // USBSerial.printf("Mode=%d OverG=%d\n\r", Mode, OverG_flag);
+
+
     // Begin Mode select
     if (Mode == INIT_MODE) {
-
         USBSerial.printf("-Mode == INIT_MODE-\n");
-
         motor_stop();
         Elevator_center    = 0.0f;
         Aileron_center     = 0.0f;
@@ -348,10 +360,10 @@ void loop_400Hz(void) {
         return;
     } else if (Mode == AVERAGE_MODE) {
         USBSerial.printf("-Mode == AVERAGE_MODE-\n");
-
         motor_stop();
         // Gyro offset Estimate
-        if (OffsetCounter < AVERAGENUM) {
+        //calibrar o offset do giroscópio
+        if (OffsetCounter < AVERAGENUM) { // AVERAGENUM = 800 por default, ou seja, 2 segundos a 400Hz
             sensor_calc_offset_avarage();
             OffsetCounter++;
             return;
@@ -365,25 +377,24 @@ void loop_400Hz(void) {
 
         USBSerial.printf("-Mode == FLIGHT_MODE-\n");
 
-        // Go to test mode
-        if (test_flag == 1) {
-            Mode = TEST_MODE;
-            return;
-        }
-
         //Verificar se comando ativou auto
         if (auto_flag == 1) {
             Mode = AUTONOMOUS_MODE;  // Novo modo
             return;
         }
 
+        //usamos a funcionalidade do flip para ativar o modo autonomo
+        if (Flip_flag == 0) {
+            Flip_flag = get_flip_button();
+            if (Flip_flag == 1) auto_flag = 1;
+        }
 
         // Judge Mode change
         if (judge_mode_change() == 1) Mode = AUTO_LANDING_MODE;
         if (rc_isconnected() == 0) Mode = AUTO_LANDING_MODE;
         // if (Range0flag == 20) Mode = AUTO_LANDING_MODE;
-
         if (OverG_flag == 1) Mode = PARKING_MODE;
+        if (Mode != OldMode) ahrs_reset();
 
         // Get command
         get_command();
@@ -398,13 +409,18 @@ void loop_400Hz(void) {
     } else if (Mode == PARKING_MODE) {
         // Judge Mode change
 
-        USBSerial.printf("-Mode == PARKING_MODE-\n");
-
-        if (judge_mode_change() == 1) {
+        // reset dos modos dps de uma rotina
+        if(auto_flag){
+            auto_flag = false;
+            return_base_flag = false;
+            emergency_landing_flag = false;
+        }
+        
+        if (judge_mode_change() == 1) { //deteta quando o botão de ARM é pressionado e largado
             for (int i = 0; i < 20; i++) {
-                ahrs_reset();
+                ahrs_reset(); // Reinicia o algoritmo Madgwick 20 vezes para garantir que o filtro esteja limpo antes de iniciar o voo
             }
-            Mode = FLIGHT_MODE;
+            Mode = FLIGHT_MODE; // Transição para voo
         }
         if (last_ahrs_reset_flag != ahrs_reset_flag) {
             if (ahrs_reset_flag == 1) {
@@ -414,21 +430,24 @@ void loop_400Hz(void) {
             last_ahrs_reset_flag = ahrs_reset_flag;
         }
 
-        // Parking
-        motor_stop();
-        OverG_flag = 0;
-        Thrust0    = 0.0;
-        Alt_flag   = 0;
-        // flip reset
+        // Parking - Garante tudo em repouso
+        motor_stop();                      // Para motores
+        OverG_flag = 0;                    // Limpa flag de queda
+        Thrust0 = 0.0;                     // Sem potência
+        Alt_flag = 0;                      // Desactiva controlo de altitude
+
+        // flip reset - Reinicia tudo para o próximo voo
         Roll_rate_reference  = 0;
         Ahrs_reset_flag      = 0;
         Flip_counter         = 0;
         Flip_flag            = 0;
         Range0flag           = 0;
-        Alt_ref              = Alt_ref0;
+        Alt_ref              = Alt_ref0;  // Altitude de referência padrão (0.5m)
         Stick_return_flag    = 0;
         Landing_state        = 0;
         Auto_takeoff_counter = 0;
+
+        // Reset dos filtros e controladores PID
         Thrust_filtered.reset();
         EstimatedAltitude.reset();
         Duty_fr.reset();
@@ -445,40 +464,16 @@ void loop_400Hz(void) {
 
         // Rate Control
         rate_control();
-    } else if (Mode == AUTONOMOUS_MODE) {
+    }else if (Mode == AUTONOMOUS_MODE) {
+        //USBSerial.printf("-----------Mode == AUTONOMOUS_MODE-----------\n");
         autonomous_flight();
-    } else if (Mode == TEST_MODE) {
-        // Test Mode
-        static bool initialized = false;
-        static int counter = 0;
-
-        if (!initialized) {
-            print_sensor_offset();
-            Pos_x = 0.0f;
-            Pos_y = 0.0f;
-            Vel_x = 0.0f;
-            Vel_y = 0.0f;
-            initialized = true;
-        }
-        
-        if(counter == 100){
-            //USBSerial.printf("a_X: %f, a_Y: %f, a_Z: %f\n", Accel_x, Accel_y, Accel_z);
-            //USBSerial.printf("  X: %f,   Y: %f,   Z: %f\n", Pos_x, Pos_y, Altitude2);
-            // Formato melhorado: mostra raw para ver offset drift
-            //USBSerial.printf("ax_raw=%f ay_raw=%f Vel_x=%f Vel_y=%f Pos_x=%f Pos_y=%f\n\r", (Accel_x - Accel_x_offset) * 9.81f, (Accel_y - Accel_y_offset) * 9.81f, Vel_x, Vel_y, Pos_x, Pos_y);
-            
-
-            counter = 0;
-        }
-        counter++;
-        
-    
     }
 
     //// Telemetry
     // telemetry_fast();
-    telemetry();
+    telemetry(); // Telemetry com mais dados, mas mais lento
 
+    
     uint32_t ce_time = micros();
     Dt_time          = ce_time - cs_time;
     OldMode          = Mode;  // Memory now mode
@@ -601,6 +596,9 @@ void flip(void) {
     }
 }
 
+
+//codigo autonomo based on position
+#if 0
 void autonomous_flight(void) {
     static uint8_t auto_state = 0; // 0: takeoff, 1: forward 1m, 2: square 2x2m
     static uint8_t square_side = 0;
@@ -627,8 +625,6 @@ void autonomous_flight(void) {
         Vel_y = 0.0f;
         initialized = true;
     }
-
-    USBSerial.printf("X: %f, Y: %f, Z: %f\n", Pos_x, Pos_y, Altitude2);
 
     Control_period = Interval_time;
 
@@ -671,22 +667,16 @@ void autonomous_flight(void) {
         return;
     }
 
+    get_command();
+
     if (auto_state == 0) {
 
-        // descola ate a altura especificada
+        //descola ate a altura especificada
         USBSerial.printf("-Takeoff-\n");
-        if (keep_altitude(takeoff_height)) {
-            auto_state = 1;
-            Auto_takeoff_counter = 0; // keep altitude baseline for the next phase
-            USBSerial.printf("Takeoff altitude reached\n");
-        }
+        //auto_state = takeoff(takeoff_height);
+        if(Altitude2 >= takeoff_height) auto_state = 1;
 
-    } else {
-        // mantém altitude durante o voo autónomo horizontal
-        keep_altitude(takeoff_height);
-    }
-
-    if (auto_state == 1) {
+    } else if (auto_state == 1) {
         
         //vai ate a aresta frontal
         USBSerial.printf("-go_to_square_perimeter-\n");
@@ -715,44 +705,12 @@ void autonomous_flight(void) {
         Pos_x = wall_x - front_m;
         Vel_x = 0.0f;
     }*/
-    
 
     angle_control();
     rate_control();
 }
 
-uint8_t keep_altitude(const float target_altitude){
-    // Auto Throttle Altitude Control for autonomous flight
-    Alt_flag = 1;
-    if (Auto_takeoff_counter < 500) {
-        Thrust0 = (float)Auto_takeoff_counter / 1000.0f;
-        if (Thrust0 > get_trim_duty(3.8f)) Thrust0 = get_trim_duty(3.8f);
-        Auto_takeoff_counter++;
-    } else if (Auto_takeoff_counter < 1000) {
-        Thrust0 = (float)Auto_takeoff_counter / 1000.0f;
-        if (Thrust0 > get_trim_duty(Voltage)) Thrust0 = get_trim_duty(Voltage);
-        Auto_takeoff_counter++;
-    } else {
-        Thrust0 = get_trim_duty(Voltage);
-    }
 
-    // Keep altitude target directly in autonomous mode
-    Alt_ref = target_altitude;
-    if (Alt_ref > ALT_REF_MAX) Alt_ref = ALT_REF_MAX;
-    if (Alt_ref < ALT_REF_MIN) Alt_ref = ALT_REF_MIN;
-
-    if ((Range0flag > OladRange0flag) || (Range0flag == RNAGE0FLAG_MAX)) {
-        Thrust0        = Thrust0 - 0.02f;
-        OladRange0flag = Range0flag;
-    }
-    Thrust_command = Thrust0 * BATTERY_VOLTAGE;
-
-    // Return true when the drone reaches the desired altitude
-    if (Altitude2 >= target_altitude - 0.05f) {
-        return 1;
-    }
-    return 0;
-}
 
 uint8_t takeoff(const float takeoff_height){
     // Progressive thrust ramp (same as original auto takeoff)
@@ -776,12 +734,6 @@ uint8_t takeoff(const float takeoff_height){
         auto_takeoff_counter = 0;  // Reset for next takeoff
         return 1;
     }
-
-    // Keep roll/pitch level during takeoff
-    Roll_angle_command = 0.0f;
-    Pitch_angle_command = 0.0f;
-    Yaw_angle_command = 0.0f;
-
     return 0;
 }
 
@@ -900,23 +852,238 @@ bool fly_to_point(const float target_x, const float target_y) {
     return false; // Ainda não alcançou o ponto
 }
 
+#endif
 
+// Definições de velocidade e tempos (Ajusta consoante a agressividade que queres no drone)
+const float AUTO_SPEED = 0.1f;         // Ângulo de inclinação (aprox 5.7 graus)
+const float TIME_HALF_SIDE = 2.0f;     // Segundos para ir do centro à aresta (equivalente a half_square_size)
+const float TIME_FULL_SIDE = 4.0f;     // Segundos para percorrer uma aresta completa do quadrado
+
+// Temporizador global para a máquina de estados
+static float state_timer = 0.0f;
+
+// ---------------------------------------------------------
+// FUNÇÃO AUXILIAR: Voar numa direção durante X segundos
+// ---------------------------------------------------------
+bool fly_for_time(float pitch_cmd, float roll_cmd, float target_time) {
+    state_timer += Interval_time; // Interval_time vem do teu loop_400Hz
+    
+    if (state_timer < target_time/2) {
+        Pitch_angle_command = pitch_cmd;
+        Roll_angle_command  = roll_cmd;
+        return false; // Ainda não acabou o tempo
+    }else if (state_timer > target_time/2) {
+        // FASE 2: Travar (inverte o comando para criar força contrária)
+        // Usamos a mesma força, mas com sinal negativo. 
+        // Podes multiplicar por 0.8f ou 0.5f se a travagem for demasiado agressiva.
+        Pitch_angle_command = -pitch_cmd; 
+        Roll_angle_command  = -roll_cmd;
+        return false; // A travar...
+        
+    } else if (state_timer > target_time){
+        // Acabou o tempo! Pára o drone e faz reset ao temporizador para a próxima fase
+        Pitch_angle_command = 0.0f;
+        Roll_angle_command  = 0.0f;
+        state_timer = 0.0f; 
+        return true; 
+    }
+}
+
+// ---------------------------------------------------------
+// LÓGICA PRINCIPAL DO VOO AUTÓNOMO
+// ---------------------------------------------------------
+void autonomous_flight(void) {
+    static uint8_t auto_state = 0; // 0: takeoff, 1: forward, 2: right corner, 3: loop
+    static uint8_t square_side = 0;
+    static uint8_t old_square_side = 0;
+    static bool initialized = false;
+
+    const float takeoff_height = 0.95f;
+
+    // Reset quando entramos no modo
+    if (OldMode != AUTONOMOUS_MODE) {
+        initialized = false;
+        auto_state = 0;
+        square_side = 0;
+        state_timer = 0.0f;
+        auto_takeoff_counter = 0;
+    }
+
+    if (!initialized) {
+        initialized = true;
+    }
+
+    Control_period = Interval_time;
+
+    // Manter a altitude ativada
+    Alt_flag = 1;
+    Alt_ref = 1.0f;
+    
+    if (Thrust_command < Motor_on_duty_threshold * BATTERY_VOLTAGE) {
+        Thrust_command = Thrust0 * BATTERY_VOLTAGE;
+    }
+
+    // Atitude padrão (ficar parado)
+    Roll_angle_command = 0.0f;
+    Pitch_angle_command = 0.0f;
+    Yaw_angle_command = 0.0f;
+
+    get_command();
+
+    // --- REGRESSO À BASE ---
+    if((return_base_flag || (Voltage <= V_threshold)) && old_square_side != square_side){
+        USBSerial.printf("---Returning to base---\n");
+        if(Return_to_base(square_side)){
+            Mode = AUTO_LANDING_MODE; // Chegou à base, aterra
+        }
+        angle_control();
+        rate_control();
+        return;
+    }
+
+    // --- ATERRAGEM DE EMERGÊNCIA ---
+    if(emergency_landing_flag){
+        Mode = AUTO_LANDING_MODE;
+        return;
+    }
+
+
+
+    // --- MÁQUINA DE ESTADOS DO QUADRADO ---
+    if (auto_state == 0) {
+        USBSerial.printf("-Takeoff-\n");
+        if(Altitude2 >= takeoff_height) auto_state = 1;
+
+    } else if (auto_state == 1) {
+        USBSerial.printf("-go_to_square_perimeter-\n");
+        // Voa para a frente durante TIME_HALF_SIDE segundos
+        if (fly_for_time(AUTO_SPEED, 0.0f, TIME_HALF_SIDE)) {
+            auto_state = 2;
+        }
+
+    } else if (auto_state == 2) {
+        USBSerial.printf("-go_to_square_corner-\n");
+        // Voa para a direita durante TIME_HALF_SIDE segundos
+        if (fly_for_time(0.0f, AUTO_SPEED, TIME_HALF_SIDE)) {
+            square_side = 0;
+            auto_state = 3;
+        }
+
+    } else if (auto_state == 3) {
+        old_square_side = square_side;
+        USBSerial.printf("-loop_perimeter_of_square-\n");
+        loop_perimeter_of_square(&square_side);
+    }
+
+    angle_control();
+    rate_control();
+
+    //usamos a funcionalidade do flip para ativar as flags de emergencia
+    if (Flip_flag == 0 && auto_state != 0) {
+        Flip_flag = get_flip_button();
+        if (Flip_flag == 1){
+            if(return_base_flag){
+                emergency_landing_flag = true;
+            }else{
+                return_base_flag = true;
+            }
+        }
+    }
+
+   
+}
+
+/*
+uint8_t takeoff(const float takeoff_height){
+    if (auto_takeoff_counter < 500) {
+        Thrust0 = (float)auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(3.8f)) Thrust0 = get_trim_duty(3.8f);
+        auto_takeoff_counter++;
+    } else if (auto_takeoff_counter < 1000) {
+        Thrust0 = (float)auto_takeoff_counter / 1000.0f;
+        if (Thrust0 > get_trim_duty(Voltage)) Thrust0 = get_trim_duty(Voltage);
+        auto_takeoff_counter++;
+    } else {
+        Thrust0 = get_trim_duty(Voltage);
+    }
+    
+    if(Altitude2 >= takeoff_height){
+        auto_takeoff_counter = 0;  
+        return 1;
+    }
+    return 0;
+}
+*/
+
+// ---------------------------------------------------------
+// FUNÇÕES DE NAVEGAÇÃO
+// ---------------------------------------------------------
+void loop_perimeter_of_square(uint8_t *square_side){
+    // Nota: Pitch positivo = Frente, Roll positivo = Direita (Ajusta consoante o teu drone)
+    if (*square_side == 0) { 
+        // Voa para a Esquerda
+        if (fly_for_time(0.0f, -AUTO_SPEED, TIME_FULL_SIDE)) *square_side = 1;
+    } else if (*square_side == 1) { 
+        // Voa para Trás
+        if (fly_for_time(-AUTO_SPEED, 0.0f, TIME_FULL_SIDE)) *square_side = 2;
+    } else if (*square_side == 2) { 
+        // Voa para a Direita
+        if (fly_for_time(0.0f, AUTO_SPEED, TIME_FULL_SIDE)) *square_side = 3;
+    } else if (*square_side == 3) { 
+        // Voa para a Frente
+        if (fly_for_time(AUTO_SPEED, 0.0f, TIME_FULL_SIDE)) *square_side = 0;
+    }
+}
+
+// Lógica simplificada de regresso com base no tempo
+bool Return_to_base(uint8_t current_side){
+    static uint8_t return_step = 0;
+
+    // Reinicia o step se acabarmos de entrar no modo de regresso
+    if (state_timer == 0.0f && return_step == 2) return_step = 0;
+
+    // Dependendo de onde estamos no quadrado, invertemos o caminho para o centro
+    if (current_side == 0 || current_side == 1) { 
+        // Estamos na secção superior ou esquerda. Voar para trás e para a direita.
+        if (return_step == 0) {
+            // Voa para trás até ao eixo Y central
+            if (fly_for_time(-AUTO_SPEED, 0.0f, TIME_HALF_SIDE)) return_step = 1; 
+        } else if (return_step == 1) {
+            // Voa para a direita até à origem
+            if (fly_for_time(0.0f, AUTO_SPEED, TIME_HALF_SIDE)) return_step = 2; 
+        } else {
+            return true; // Chegou ao centro
+        }
+    } else { 
+        // Estamos na secção inferior ou direita. Voar para a frente e para a esquerda.
+        if (return_step == 0) {
+            // Voa para a frente até ao eixo Y central
+            if (fly_for_time(AUTO_SPEED, 0.0f, TIME_HALF_SIDE)) return_step = 1; 
+        } else if (return_step == 1) {
+            // Voa para a esquerda até à origem
+            if (fly_for_time(0.0f, -AUTO_SPEED, TIME_HALF_SIDE)) return_step = 2; 
+        } else {
+            return true; // Chegou ao centro
+        }
+    } 
+    return false;
+}
 
 uint8_t judge_mode_change(void) {
-    // Ariming Button が押されて離されたかを確認
+    // Ariming Button detection with chatter prevention
     uint8_t state;
-    static uint8_t chatter = 0;
+    static uint8_t chatter = 0; // Mantém estado entre chamadas pq é static
     state                  = 0;
-    if (chatter == 0) {
-        if (get_arming_button() == 1) {
-            chatter = 1;
+    if (chatter == 0) {                    // Se estava aguardando...
+        if (get_arming_button() == 1) {    // ...e botão pressionado agora
+            chatter = 1;                   // Marca que foi pressionado
         }
     } else {
-        if (get_arming_button() == 0) {
-            chatter++;
-            if (chatter > 40) {
-                chatter = 0;
-                state   = 1;
+        if (get_arming_button() == 0) {    // Se botão agora está solto...
+            chatter++;                     // Incrementa contador (1→2→3→...→41)
+            if (chatter > 40) {            // Esperou 40 iterações?
+                chatter = 0;               // Reset para próximo ciclo
+                state   = 1;               // Retorna 1 = detecção confirmada!
             }
         }
     }
@@ -969,6 +1136,107 @@ void control_init(void) {
 }
 ///////////////////////////////////////////////////////////////////
 
+float get_trim_duty(float voltage) {
+    return -0.2448f * voltage + 1.5892f;
+}
+
+float get_rate_ref(float x) {
+    float ref;
+    float h;
+    if (x < -1.0f) x = -1.0f;
+    if (x > 1.0f) x = 1.0f;
+    if (x >= 0.0f) {
+        h   = x * (x * x * x * x * x * RATE_EXPO + x * (1 - RATE_EXPO));
+        ref = PI / 180.0f * ((RATE_MAX - RATE_RATE) * h + RATE_RATE * x);
+    } else {
+        x   = -x;
+        h   = x * (x * x * x * x * x * RATE_EXPO + x * (1 - RATE_EXPO));
+        ref = -PI / 180.0f * ((RATE_MAX - RATE_RATE) * h + RATE_RATE * x);
+    }
+    return ref;
+}
+
+void get_command(void) {
+    static uint16_t stick_count = 0;
+    static float auto_throttle  = 0.0f;
+    static float old_alt        = 0.0;
+    float th, thlo;
+    float throttle_limit = 0.7;
+    float thrust_max;
+
+    Control_mode = Stick[CONTROLMODE];
+    if ((uint8_t)Stick[ALTCONTROLMODE] == AUTO_ALT || auto_flag)
+        Throttle_control_mode = 1;
+    else if ((uint8_t)Stick[ALTCONTROLMODE] == MANUAL_ALT && !auto_flag)
+        Throttle_control_mode = 0;
+    else
+        Throttle_control_mode = 0;
+
+    // Thrust control
+    thlo = Stick[THROTTLE];
+    // thlo = thlo/throttle_limit;
+
+    if (Throttle_control_mode == 0) {
+        // Manual Throttle
+        if (thlo < 0.0) thlo = 0.0;
+        if (thlo > 1.0f) thlo = 1.0f;
+        if ((-0.2 < thlo) && (thlo < 0.2)) thlo = 0.0f;  // 不感帯
+        th = (get_trim_duty(Voltage) + (thlo - 0.4)) * BATTERY_VOLTAGE;
+        if (th < 0) th = 0.0f;
+        Thrust_command = Thrust_filtered.update(th, Interval_time);
+    } else if (Throttle_control_mode == 1) {
+        // Auto Throttle Altitude Control
+        Alt_flag = 1;
+        if (Auto_takeoff_counter < 500) {
+            Thrust0 = (float)Auto_takeoff_counter / 1000.0;
+            if (Thrust0 > get_trim_duty(3.8)) Thrust0 = get_trim_duty(3.8);
+            Auto_takeoff_counter++;
+        } else if (Auto_takeoff_counter < 1000) {
+            Thrust0 = (float)Auto_takeoff_counter / 1000.0;
+            if (Thrust0 > get_trim_duty(Voltage)) Thrust0 = get_trim_duty(Voltage);
+            Auto_takeoff_counter++;
+        } else
+            Thrust0 = get_trim_duty(Voltage);
+
+        // Get Altitude ref
+        if ((-0.2 < thlo) && (thlo < 0.2)) thlo = 0.0f;  // 不感帯
+        Alt_ref = Alt_ref + thlo * 0.001;
+        if (Alt_ref > ALT_REF_MAX) Alt_ref = ALT_REF_MAX;
+        if (Alt_ref < ALT_REF_MIN) Alt_ref = ALT_REF_MIN;
+        if ((Range0flag > OladRange0flag) || (Range0flag == RNAGE0FLAG_MAX)) {
+            Thrust0        = Thrust0 - 0.02;
+            OladRange0flag = Range0flag;
+        }
+        Thrust_command = Thrust0 * BATTERY_VOLTAGE;
+    }
+
+    if (Control_mode == ANGLECONTROL) {
+        Roll_angle_command = 0.4 * Stick[AILERON];
+        if (Roll_angle_command < -1.0f) Roll_angle_command = -1.0f;
+        if (Roll_angle_command > 1.0f) Roll_angle_command = 1.0f;
+        Pitch_angle_command = 0.4 * Stick[ELEVATOR];
+        if (Pitch_angle_command < -1.0f) Pitch_angle_command = -1.0f;
+        if (Pitch_angle_command > 1.0f) Pitch_angle_command = 1.0f;
+    } else if (Control_mode == RATECONTROL) {
+        Roll_rate_reference  = get_rate_ref(Stick[AILERON]);
+        Pitch_rate_reference = get_rate_ref(Stick[ELEVATOR]);
+        // USBSerial.printf("%9.6f\n\r", Pitch_rate_reference*180.0f/PI);
+    }
+
+    Yaw_angle_command = Stick[RUDDER];
+    if (Yaw_angle_command < -1.0f) Yaw_angle_command = -1.0f;
+    if (Yaw_angle_command > 1.0f) Yaw_angle_command = 1.0f;
+    // Yaw control
+    Yaw_rate_reference = 2.0f * PI * (Yaw_angle_command - Rudder_center);
+
+    // flip button check
+    /*if (Flip_flag == 0) {
+        Flip_flag = get_flip_button();
+        if (Flip_flag == 1) Mode = FLIP_MODE;
+    }*/
+}
+
+#if 0
 float get_trim_duty(float voltage) {
     return -0.2448f * voltage + 1.5892f;
 }
@@ -1051,6 +1319,7 @@ void get_command(void) {
         if (Flip_flag == 1) Mode = FLIP_MODE;
     }
 }
+#endif
 
 uint8_t auto_landing(void) {
     // Auto Landing
@@ -1101,8 +1370,8 @@ uint8_t auto_landing(void) {
     Yaw_rate_reference = 2.0f * PI * (Yaw_angle_command - Rudder_center);
 
     if (Control_mode == RATECONTROL) {
-        Roll_rate_reference  = 240 * PI / 180 * Roll_angle_command;
-        Pitch_rate_reference = 240 * PI / 180 * Pitch_angle_command;
+        Roll_rate_reference  = get_rate_ref(Stick[AILERON]);
+        Pitch_rate_reference = get_rate_ref(Stick[ELEVATOR]);
     }
 
     // USBSerial.printf("thro=%9.6f Alt=%9.6f state=%d flag=%d\r\n",auto_throttle, Altitude2, Landing_state, flag);
@@ -1262,32 +1531,34 @@ void angle_control(void) {
     uint16_t flip_step;
     float domega;
 
-    if (Control_mode == RATECONTROL) return;
-
     // PID Control
     if (Thrust_command / BATTERY_VOLTAGE < Motor_on_duty_threshold) {
         // Initialize
         reset_angle_control();
     } else {
-        // Angle Control
-        // Led_color = RED;
-        // Get Roll and Pitch angle ref
-        Roll_angle_reference  = 0.5f * PI * (Roll_angle_command - Aileron_center);
-        Pitch_angle_reference = 0.5f * PI * (Pitch_angle_command - Elevator_center);
-        if (Roll_angle_reference > (30.0f * PI / 180.0f)) Roll_angle_reference = 30.0f * PI / 180.0f;
-        if (Roll_angle_reference < -(30.0f * PI / 180.0f)) Roll_angle_reference = -30.0f * PI / 180.0f;
-        if (Pitch_angle_reference > (30.0f * PI / 180.0f)) Pitch_angle_reference = 30.0f * PI / 180.0f;
-        if (Pitch_angle_reference < -(30.0f * PI / 180.0f)) Pitch_angle_reference = -30.0f * PI / 180.0f;
-
-        // Error
-        phi_err   = Roll_angle_reference - (Roll_angle - Roll_angle_offset);
-        theta_err = Pitch_angle_reference - (Pitch_angle - Pitch_angle_offset);
-        alt_err   = Alt_ref - Altitude2;
-
         // Altitude Control PID
-        Roll_rate_reference  = phi_pid.update(phi_err, Interval_time);
-        Pitch_rate_reference = theta_pid.update(theta_err, Interval_time);
+        alt_err = Alt_ref - Altitude2;
         if (Alt_flag >= 1) Z_dot_ref = alt_pid.update(alt_err, Interval_time);
+
+        if (Control_mode == ANGLECONTROL) {
+            // Angle Control
+            // Led_color = RED;
+            // Get Roll and Pitch angle ref
+            Roll_angle_reference  = 0.5f * PI * (Roll_angle_command - Aileron_center);
+            Pitch_angle_reference = 0.5f * PI * (Pitch_angle_command - Elevator_center);
+            if (Roll_angle_reference > (30.0f * PI / 180.0f)) Roll_angle_reference = 30.0f * PI / 180.0f;
+            if (Roll_angle_reference < -(30.0f * PI / 180.0f)) Roll_angle_reference = -30.0f * PI / 180.0f;
+            if (Pitch_angle_reference > (30.0f * PI / 180.0f)) Pitch_angle_reference = 30.0f * PI / 180.0f;
+            if (Pitch_angle_reference < -(30.0f * PI / 180.0f)) Pitch_angle_reference = -30.0f * PI / 180.0f;
+
+            // Error
+            phi_err   = Roll_angle_reference - (Roll_angle - Roll_angle_offset);
+            theta_err = Pitch_angle_reference - (Pitch_angle - Pitch_angle_offset);
+
+            // Angle Control PID
+            Roll_rate_reference  = phi_pid.update(phi_err, Interval_time);
+            Pitch_rate_reference = theta_pid.update(theta_err, Interval_time);
+        }
     }
 }
 
@@ -1341,7 +1612,7 @@ uint8_t get_flip_button(void) {
     state = 0;
     if ((int)Stick[BUTTON_FLIP] == 1) {
         chatta++;
-        if (chatta > 10) {
+        if (chatta > 2) {
             chatta = 0;
             state  = 1;
         }
