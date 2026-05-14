@@ -867,6 +867,7 @@ static float state_timer = 0.0f;
 // ---------------------------------------------------------
 bool fly_for_time(float pitch_cmd, float roll_cmd, float target_time) {
     state_timer += Interval_time; // Interval_time vem do teu loop_400Hz
+    USBSerial.printf("State Timer: %f / %f\n", state_timer, target_time);// array[MODE] = 6; array[ARG1] = state_timer; array[ARG2] = target_time;
     
     if (state_timer < target_time/2) {
         Pitch_angle_command = pitch_cmd;
@@ -951,7 +952,7 @@ void autonomous_flight(void) {
 
     // --- MÁQUINA DE ESTADOS DO QUADRADO ---
     if (auto_state == 0) {
-        USBSerial.printf("-Takeoff-\n");
+        USBSerial.printf("-Takeoff-\n"); // array[MODE] = 2;
         if(Altitude2 >= takeoff_height) auto_state = 1;
 
     } else if (auto_state == 1) {
@@ -977,6 +978,7 @@ void autonomous_flight(void) {
 
     angle_control();
     rate_control();
+    //our_telemetry();
 
     //usamos a funcionalidade do flip para ativar as flags de emergencia
     if (Flip_flag == 0 && auto_state != 0) {
@@ -1545,7 +1547,7 @@ void angle_control(void) {
             // Led_color = RED;
             // Get Roll and Pitch angle ref
             Roll_angle_reference  = 0.5f * PI * (Roll_angle_command - Aileron_center);
-            Pitch_angle_reference = 0.5f * PI * (Pitch_angle_command - Elevator_center);
+            Pitch_angle_reference = 0.5f * PI * (Pitch_angle_command - Elevator_center - 0.025f); // nao tocar neste valor ele esta a corrigir o drift
             if (Roll_angle_reference > (30.0f * PI / 180.0f)) Roll_angle_reference = 30.0f * PI / 180.0f;
             if (Roll_angle_reference < -(30.0f * PI / 180.0f)) Roll_angle_reference = -30.0f * PI / 180.0f;
             if (Pitch_angle_reference > (30.0f * PI / 180.0f)) Pitch_angle_reference = 30.0f * PI / 180.0f;
