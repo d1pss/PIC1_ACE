@@ -54,8 +54,34 @@ void on_esp_now_sent(const uint8_t *mac_addr, esp_now_send_status_t status);
 
 
 
-
+uint8_t broad_addr[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 uint8_t external_esp_mac[] = {0x30, 0xAE, 0xA4, 0x86, 0x80, 0x78}; // Your Sniffer MAC
+uint8_t peer_XY[4] = {0xAC, 0xE0, 0x57, 0xA7};
+
+
+
+
+void send_peer_info_STA(void)
+{
+    uint8_t data[11];
+    data[0] = CHANNEL;
+    memcpy(&data[1], (uint8_t *)MyMacAddr, 6);
+    memcpy(&data[1 + 6], (uint8_t *)peer_command, 4);
+    esp_now_send(peerInfo.peer_addr, data, 11);
+}
+
+void telemetry_STA_send(uint8_t *data, uint16_t datalen)
+{
+
+    //USBSerial.println("telemetry_STA_send:");
+    esp_err_t result;
+    uint8_t aux_var = 0;
+    //for(;aux_var < 10;aux_var++) 
+        esp_now_send(broad_addr, data, datalen);
+    //for(uint8_t aux = 0; aux < stat_N; aux++) esp_now_send(db_XY[aux].peerInfo.peer_addr, data, datalen);
+}
+
+
 
 void register_second_esp() {
     esp_now_peer_info_t peerInfo = {};
@@ -67,9 +93,6 @@ void register_second_esp() {
         esp_now_add_peer(&peerInfo);
     }
 }
-
-
-
 
 
 // 受信コールバック

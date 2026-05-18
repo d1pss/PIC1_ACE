@@ -318,7 +318,7 @@ void init_copter(void) {
 
     USBSerial.printf("Finish StampFly init!\r\n");
     USBSerial.printf("Enjoy Flight!\r\n");
-    start_tone();
+    //start_tone();
 }
 
 // Main loop
@@ -478,6 +478,9 @@ void loop_400Hz(void) {
     Dt_time          = ce_time - cs_time;
     OldMode          = Mode;  // Memory now mode
     // End of Loop_400Hz function
+
+    //UBaseType_t hwm =  uxTaskGetStackHighWaterMark(NULL);
+    //USBSerial.printf("Free %u bytes\n",hwm);
 }
 
 void flip(void) {

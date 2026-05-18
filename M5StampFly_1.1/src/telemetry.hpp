@@ -28,7 +28,17 @@
 
 #include <stdint.h>
 
+#define PEER_XX   (uint8_t []){0xAC, 0xE0, 0x57, 0xA7}
+#define PING_XX   (uint8_t []){0x77, 0x99, 0x02, 0x09}
+
+//#define PEER_XY   (uint8_t []){0xAC, 0xE0, 0x57, 0xA7}
+//#define PING_XY   (uint8_t []){0x77, 99, 0x02, 0x09}
+
+
 void telemetry(void);
 void telemetry_fast(void);
+
+uint8_t make_2station_PING(uint8_t* senddata);
+uint8_t make_2station_PEER(uint8_t* senddata);
 
 #endif

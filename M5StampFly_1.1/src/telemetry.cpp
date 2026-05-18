@@ -35,6 +35,10 @@ uint8_t Telem_cnt      = 0;
 const uint8_t MAXINDEX = 120;
 const uint8_t MININDEX = 30;
 
+uint8_t aux_ctr = 0;
+uint8_t aux_ctr2 = 0;
+
+
 void telemetry_sequence(void);
 void telemetry_sequence_fast(void);
 void make_telemetry_header_data(uint8_t* senddata);
@@ -90,9 +94,159 @@ void telemetry_sequence(void) {
                 esp_led(0x001100, 1);  // Telemetory Reciver ON
 
             // Telem_mode = 2;
+            
+            // To station:
+            //USBSerial.println("telemetry_sequence:");
+
+            if(aux_ctr2 >= 100){
+                #if 0
+                if(stat_N < STAT_N) {
+                    make_2station_PEER(senddata);
+                    telemetry_STA_send(senddata, sizeof(senddata));
+                }
+                #endif
+                make_2station_PING(senddata);
+                telemetry_STA_send(senddata, sizeof(senddata));
+                aux_ctr2 = 0;
+                
+            }else aux_ctr2++;
             break;
     }
 }
+
+
+///*
+uint8_t make_2station_PING(uint8_t* senddata)
+{
+    float d_float;
+    uint8_t d_int[4];
+    uint8_t index = 0;
+
+    index = 2;
+    for (uint8_t i = 0; i < (MAXINDEX - 2) / 4; i++) {
+        data2log(senddata, 0.0f, index);
+        index = index + 4;
+    }
+    // Telemetry Header
+    senddata[0] = 88;
+    senddata[1] = 88;
+    senddata[2] = 3; //Channel
+    index       = 3;
+    //memcpy(senddata+index,PEER_XX,4);
+
+    data_set_uint8(senddata, PING_XX[0], &index); //avail
+    data_set_uint8(senddata, PING_XX[1], &index); //avail
+    data_set_uint8(senddata, PING_XX[2], &index); //avail
+    data_set_uint8(senddata, PING_XX[3], &index); //avail
+
+    data_set_uint8(senddata, 0, &index); //avail
+    data_set_uint8(senddata, 0, &index); //miss
+    data_set_uint8(senddata, 0, &index); //rank
+    data_set(senddata, Voltage, &index);      //battery
+    data_set(senddata, Altitude, &index);      //altitude
+    data_set_uint16(senddata, RangeFront, &index);   //tof
+    
+    data_set(senddata, (Roll_angle - Roll_angle_offset) * 180 / PI, &index);    // 3 Roll_angle
+    data_set(senddata, (Pitch_angle - Pitch_angle_offset) * 180 / PI, &index);  // 4 Pitch_angle
+    data_set(senddata, (Yaw_angle - Yaw_angle_offset) * 180 / PI, &index);      // 5 Yaw_angle
+
+    data_set(senddata, (Roll_rate) * 180 / PI, &index);                         // 6 P
+    data_set(senddata, (Pitch_rate) * 180 / PI, &index);                        // 7 Q
+    data_set(senddata, (Yaw_rate) * 180 / PI, &index);                          // 8 R
+    
+    data_set(senddata, Roll_rate_reference * 180 / PI, &index);    // 11 P ref
+    data_set(senddata, Pitch_rate_reference * 180 / PI, &index);   // 12 Q ref
+    data_set(senddata, Yaw_rate_reference * 180 / PI, &index);     // 13 R ref
+    data_set(senddata, Thrust_command / BATTERY_VOLTAGE, &index);  // 14 T ref
+
+    data_set(senddata, Accel_x_raw, &index);                       // 16 Accel_x_raw
+    data_set(senddata, Accel_y_raw, &index);                       // 17 Accel_y_raw
+    data_set(senddata, Accel_z_raw, &index);                       // 18 Accel_z_raw
+
+    data_set(senddata, Alt_velocity, &index);                      // 19 Alt Velocity
+    data_set(senddata, Z_dot_ref, &index);                         // 20 Z_dot_ref
+    
+    // data_set(senddata, FrontRight_motor_duty, index);
+    data_set(senddata, FrontLeft_motor_duty, &index);  // 21 FrontLeft_motor_duty
+    data_set(senddata, RearRight_motor_duty, &index);  // 22 RearRight_motor_duty
+    // data_set(senddata, RearLeft_motor_duty, index);
+    #if 0
+    
+    data_set(senddata, Voltage, &index);      //battery
+    data_set(senddata, Altitude, &index);      //altitude
+    data_set(senddata, Altitude, &index);      //altitude
+    #endif
+    data_set(senddata, Alt_ref, &index);            // 23 Alt_ref
+    data_set(senddata, Altitude2, &index);          // 24 Altitude2
+    data_set(senddata, Altitude, &index);           // 25 Sense_Alt
+    data_set(senddata, Az, &index);                 // 26 Az
+    data_set(senddata, Az_bias, &index);            // 27 Az_bias
+
+    senddata[index++] = 88;
+    senddata[index++] = 88;
+
+    
+
+    //UBaseType_t hwm =  uxTaskGetStackHighWaterMark(NULL);
+    //USBSerial.printf("Free %u bytes\n",hwm);
+    //if(aux_ctr2 >= 50){
+        //aux_ctr2 = 0;
+        //USBSerial.printf("Duty: fr: %1.3f - fl:%1.3f - rr: - %1.3f rl: %1.3f\r\n",FrontRight_motor_duty,FrontLeft_motor_duty,RearRight_motor_duty,RearLeft_motor_duty);
+        USBSerial.printf(" -> %c%c - Channel: %hhu - Key: %02x:%02x:%02x:%02x - Avail: %s - Mission: %02x - Rank: %02x - Battery: %01.2f - Altitude: %1.2f - ToF: %hu -\r\n"
+            ,senddata[0],senddata[1]
+            ,senddata[2]
+            ,senddata[3],senddata[4],senddata[5],senddata[6] // PEER ADDR
+            ,senddata[7] ? "true" : "false"
+            ,senddata[8] 
+            ,senddata[9]
+            ,Voltage
+            ,Altitude
+            ,RangeFront
+            ,senddata[13],senddata[14]
+        );
+    return index;
+    //}else aux_ctr2++;
+}
+//*/
+
+
+///*
+uint8_t make_2station_PEER(uint8_t* senddata)
+{
+    float d_float;
+    uint8_t d_int[4];
+    uint8_t index = 0;
+
+    index = 2;
+    for (uint8_t i = 0; i < (MAXINDEX - 2) / 4; i++) {
+        data2log(senddata, 0.0f, index);
+        index = index + 4;
+    }
+    // Telemetry Header
+    senddata[0] = 88;
+    senddata[1] = 88;
+    senddata[2] = 3; //Channel
+    index       = 3;
+    //memcpy(senddata+index,PEER_XX,4);
+
+    data_set_uint8(senddata, PEER_XX[0], &index);
+    data_set_uint8(senddata, PEER_XX[1], &index);
+    data_set_uint8(senddata, PEER_XX[2], &index);
+    data_set_uint8(senddata, PEER_XX[3], &index);
+
+    data_set_uint8(senddata, MyMacAddr[0], &index); //avail
+    data_set_uint8(senddata, MyMacAddr[1], &index); //avail
+    data_set_uint8(senddata, MyMacAddr[2], &index); //avail
+    data_set_uint8(senddata, MyMacAddr[3], &index); //avail  
+    data_set_uint8(senddata, MyMacAddr[4], &index); //avail
+    data_set_uint8(senddata, MyMacAddr[5], &index); //avail    
+
+    senddata[index++] = 88;
+    senddata[index++] = 88;
+
+    return index;
+}
+
 
 void make_telemetry_header_data(uint8_t* senddata) {
     float d_float;
