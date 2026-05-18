@@ -35,6 +35,8 @@
 //#define PING_XY   (uint8_t []){0x77, 99, 0x02, 0x09}
 
 
+
+
 void telemetry(void);
 void telemetry_fast(void);
 

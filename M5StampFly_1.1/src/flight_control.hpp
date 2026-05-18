@@ -77,6 +77,20 @@ void set_duty_rl(float duty);
 // グローバル変数
 extern volatile uint8_t Mode;
 extern volatile uint8_t Loop_flag;
+extern volatile uint8_t Presence_flag;
+/*
+    0 - init_copter()
+    1 - loop_400Hz()
+    2 - autonomous_flight()
+    3 - 
+    4 -
+    5 -
+    6 -
+    7 -
+*/
+
+
+
 extern float Control_period;
 extern volatile float Elapsed_time;
 
@@ -147,6 +161,7 @@ extern volatile float FrontRight_motor_duty;
 extern volatile float FrontLeft_motor_duty;
 extern volatile float RearRight_motor_duty;
 extern volatile float RearLeft_motor_duty;
+
 // 速度目標Z
 extern float Z_dot_ref;
 

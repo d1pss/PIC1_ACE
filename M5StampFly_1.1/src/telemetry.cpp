@@ -35,6 +35,7 @@ uint8_t Telem_cnt      = 0;
 const uint8_t MAXINDEX = 120;
 const uint8_t MININDEX = 30;
 
+
 uint8_t aux_ctr = 0;
 uint8_t aux_ctr2 = 0;
 
@@ -138,6 +139,8 @@ uint8_t make_2station_PING(uint8_t* senddata)
     data_set_uint8(senddata, PING_XX[1], &index); //avail
     data_set_uint8(senddata, PING_XX[2], &index); //avail
     data_set_uint8(senddata, PING_XX[3], &index); //avail
+    data_set_uint8(senddata, Mode, &index);             // 7  fly mode(1 byte)
+    data_set_uint8(senddata, Presence_flag, &index);    // 8  Debug Presence Flag (1 byte)
 
     data_set_uint8(senddata, 0, &index); //avail
     data_set_uint8(senddata, 0, &index); //miss
@@ -181,6 +184,9 @@ uint8_t make_2station_PING(uint8_t* senddata)
     data_set(senddata, Altitude, &index);           // 25 Sense_Alt
     data_set(senddata, Az, &index);                 // 26 Az
     data_set(senddata, Az_bias, &index);            // 27 Az_bias
+    data_set_uint8(senddata, Presence_flag, &index);         // 28.2 fly mode(1 byte)
+
+
 
     senddata[index++] = 88;
     senddata[index++] = 88;
@@ -324,9 +330,9 @@ void make_telemetry_data(uint8_t* senddata) {
     data_set(senddata, Altitude, &index);           // 25 Sense_Alt
     data_set(senddata, Az, &index);                 // 26 Az
     data_set(senddata, Az_bias, &index);            // 27 Az_bias
-    data_set_uint8(senddata, Alt_flag, &index);     // 28.1 Alt_flag(1 byte)
-    data_set_uint8(senddata, Mode, &index);         // 28.2 fly mode(1 byte)
-    data_set_uint16(senddata, RangeFront, &index);  // 28.3-4 tof front
+    data_set_uint8(senddata, Alt_flag, &index);     // 28 1 Alt_flag(1 byte)
+    data_set_uint8(senddata, Mode, &index);         // 28 2 fly mode(1 byte)
+    data_set_uint16(senddata, RangeFront, &index);  // 28 3-4 tof front
 }
 
 void telemetry_fast(void) {

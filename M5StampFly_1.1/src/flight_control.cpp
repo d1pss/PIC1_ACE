@@ -53,6 +53,9 @@
 #include "button.hpp"
 #include "buzzer.h"
 
+volatile uint8_t Presence_flag = 0;
+
+
 // モータPWM出力Pinのアサイン
 // Motor PWM Pin
 const int pwmFrontLeft  = 5;
@@ -271,6 +274,7 @@ void IRAM_ATTR onTimer() {
 // Initialize Multi copter
 void init_copter(void) {
     // Initialize Mode
+    Presence_flag = 0;
     Mode = INIT_MODE;
     motor_stop();
 
@@ -323,6 +327,7 @@ void init_copter(void) {
 
 // Main loop
 void loop_400Hz(void) {
+    Presence_flag = 1;
     static uint8_t led = 1;
     float sense_time;
     // 割り込みにより400Hzで以降のコードが実行
@@ -897,6 +902,7 @@ bool fly_for_time(float pitch_cmd, float roll_cmd, float target_time) {
 // LÓGICA PRINCIPAL DO VOO AUTÓNOMO
 // ---------------------------------------------------------
 void autonomous_flight(void) {
+    Presence_flag = 2;
     static uint8_t auto_state = 0; // 0: takeoff, 1: forward, 2: right corner, 3: loop
     static uint8_t square_side = 0;
     static uint8_t old_square_side = 0;
